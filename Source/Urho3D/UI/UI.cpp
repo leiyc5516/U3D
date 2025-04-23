@@ -410,71 +410,104 @@ void UI::Update(float timeStep)
     Update(timeStep, rootModalElement_);
 }
 
+/**
+ * @brief 更新 UI 渲染批次数据。
+ * 
+ * 此函数负责收集非模态 UI 元素、模态 UI 元素、光标以及渲染到纹理的 UI 元素的渲染批次数据。
+ * 同时处理 OS 光标可见性，确保在 OS 光标可见时不渲染 UI 自身的光标。
+ */
 void UI::RenderUpdate()
 {
+    // 确保根元素、模态根元素和图形子系统有效
     assert(rootElement_ && rootModalElement_ && graphics_);
 
+    // 记录性能分析点，用于统计获取 UI 渲染批次的时间
     URHO3D_PROFILE(GetUIBatches);
 
+    // 标记 UI 尚未渲染
     uiRendered_ = false;
 
-    // If the OS cursor is visible, do not render the UI's own cursor
+    // 检查 OS 光标的可见性，如果可见则不渲染 UI 自身的光标
     bool osCursorVisible = GetSubsystem<Input>()->IsMouseVisible();
 
-    // Get rendering batches from the non-modal UI elements
+    // 清空非模态 UI 元素的渲染批次和顶点数据
     batches_.Clear();
     vertexData_.Clear();
+
+    // 获取根元素的尺寸和位置
     const IntVector2& rootSize = rootElement_->GetSize();
     const IntVector2& rootPos = rootElement_->GetPosition();
-    // Note: the scissors operate on unscaled coordinates. Scissor scaling is only performed during render
+
+    // 初始化裁剪矩形，使用根元素的位置和尺寸，注意裁剪操作使用未缩放的坐标，缩放仅在渲染时进行
     IntRect currentScissor = IntRect(rootPos.x_, rootPos.y_, rootPos.x_ + rootSize.x_, rootPos.y_ + rootSize.y_);
+
+    // 如果根元素可见，则收集其渲染批次数据
     if (rootElement_->IsVisible())
         GetBatches(batches_, vertexData_, rootElement_, currentScissor);
 
-    // Save the batch size of the non-modal batches for later use
+    // 保存非模态 UI 元素的渲染批次数量，供后续渲染时使用
     nonModalBatchSize_ = batches_.Size();
 
-    // Get rendering batches from the modal UI elements
+    // 收集模态 UI 元素的渲染批次数据
     GetBatches(batches_, vertexData_, rootModalElement_, currentScissor);
 
-    // Get batches from the cursor (and its possible children) last to draw it on top of everything
+    // 如果 UI 光标存在、可见且 OS 光标不可见，则收集光标的渲染批次数据，确保光标绘制在最上层
     if (cursor_ && cursor_->IsVisible() && !osCursorVisible)
     {
+        // 重置裁剪矩形为根元素的尺寸
         currentScissor = IntRect(0, 0, rootSize.x_, rootSize.y_);
+        // 收集光标自身的渲染批次数据
         cursor_->GetBatches(batches_, vertexData_, currentScissor);
+        // 收集光标子元素的渲染批次数据
         GetBatches(batches_, vertexData_, cursor_, currentScissor);
     }
 
-    // Get batches for UI elements rendered into textures. Each element rendered into texture is treated as root element.
+    // 遍历所有渲染到纹理的 UI 元素，收集它们的渲染批次数据
     for (auto it = renderToTexture_.Begin(); it != renderToTexture_.End();)
     {
+        // 获取当前渲染到纹理的数据
         RenderToTextureData& data = it->second_;
+
+        // 如果根元素已经失效，则从渲染到纹理的映射中移除该元素
         if (data.rootElement_.Expired())
         {
             it = renderToTexture_.Erase(it);
             continue;
         }
 
+        // 如果根元素启用，则收集其渲染批次数据
         if (data.rootElement_->IsEnabled())
         {
+            // 清空该元素的渲染批次和顶点数据
             data.batches_.Clear();
             data.vertexData_.Clear();
+
+            // 获取根元素指针
             UIElement* element = data.rootElement_;
+
+            // 获取元素的尺寸和位置
             const IntVector2& size = element->GetSize();
             const IntVector2& pos = element->GetPosition();
-            // Note: the scissors operate on unscaled coordinates. Scissor scaling is only performed during render
+
+            // 初始化该元素的裁剪矩形，同样使用未缩放的坐标
             IntRect scissor = IntRect(pos.x_, pos.y_, pos.x_ + size.x_, pos.y_ + size.y_);
+
+            // 收集该元素的渲染批次数据
             GetBatches(data.batches_, data.vertexData_, element, scissor);
 
-            // UIElement does not have anything to show. Insert dummy batch that will clear the texture.
+            // 如果该元素没有需要渲染的内容，则插入一个虚拟批次用于清空纹理
             if (data.batches_.Empty())
             {
+                // 创建一个虚拟批次，使用替换混合模式，黑色填充
                 UIBatch batch(element, BLEND_REPLACE, scissor, nullptr, &data.vertexData_);
                 batch.SetColor(Color::BLACK);
+                // 添加一个覆盖整个裁剪矩形的四边形
                 batch.AddQuad(scissor.left_, scissor.top_, scissor.right_, scissor.bottom_, 0, 0);
+                // 将虚拟批次添加到渲染批次列表中
                 data.batches_.Push(batch);
             }
         }
+        // 移动到下一个渲染到纹理的元素
         ++it;
     }
 }
