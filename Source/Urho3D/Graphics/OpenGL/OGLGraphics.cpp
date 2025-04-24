@@ -594,37 +594,41 @@ bool Graphics::TakeScreenShot(Image& destImage)
 
 bool Graphics::BeginFrame()
 {
+    // 检查图形系统是否已初始化或设备是否丢失
     if (!IsInitialized() || IsDeviceLost())
         return false;
 
-    // If using an external window, check it for size changes, and reset screen mode if necessary
+    // 处理外部窗口大小变化
     if (externalWindow_)
     {
         int width, height;
-
+        // 获取窗口实际绘制尺寸
         SDL_GL_GetDrawableSize(window_, &width, &height);
+        // 如果尺寸变化则重置屏幕模式
         if (width != width_ || height != height_)
             SetMode(width, height);
     }
 
-    // Re-enable depth test and depth func in case a third party program has modified it
+    // 重置深度测试状态（防止第三方程序修改）
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(glCmpFunc[depthTestMode_]);
 
-    // Set default rendertarget and depth buffer
+    // 重置渲染目标和深度缓冲
     ResetRenderTargets();
 
-    // Cleanup textures from previous frame
+    // 清理上一帧的纹理绑定
     for (unsigned i = 0; i < MAX_TEXTURE_UNITS; ++i)
         SetTexture(i, nullptr);
 
-    // Enable color and depth write
+    // 启用颜色和深度写入
     SetColorWrite(true);
     SetDepthWrite(true);
 
+    // 重置绘制统计
     numPrimitives_ = 0;
     numBatches_ = 0;
 
+    // 发送开始渲染事件
     SendEvent(E_BEGINRENDERING);
 
     return true;
@@ -1499,17 +1503,18 @@ void Graphics::ClearTransformSources()
 
 void Graphics::SetTexture(unsigned index, Texture* texture)
 {
+    // 检查纹理单元索引是否有效
     if (index >= MAX_TEXTURE_UNITS)
         return;
 
-    // Check if texture is currently bound as a rendertarget. In that case, use its backup texture, or blank if not defined
+    // 检查纹理是否被绑定为渲染目标，如果是则使用其备份纹理
     if (texture)
     {
         if (renderTargets_[0] && renderTargets_[0]->GetParentTexture() == texture)
             texture = texture->GetBackupTexture();
         else
         {
-            // Resolve multisampled texture now as necessary
+            // 处理多重采样纹理的自动解析
             if (texture->GetMultiSample() > 1 && texture->GetAutoResolve() && texture->IsResolveDirty())
             {
                 if (texture->GetType() == Texture2D::GetTypeStatic())
@@ -1520,8 +1525,10 @@ void Graphics::SetTexture(unsigned index, Texture* texture)
         }
     }
 
+    // 只有当纹理对象发生变化时才执行绑定操作
     if (textures_[index] != texture)
     {
+        // 切换到指定的纹理单元
         if (impl_->activeTexture_ != index)
         {
             glActiveTexture(GL_TEXTURE0 + index);
@@ -1531,12 +1538,15 @@ void Graphics::SetTexture(unsigned index, Texture* texture)
         if (texture)
         {
             unsigned glType = texture->GetTarget();
-            // Unbind old texture type if necessary
+            // 如果之前绑定了不同类型的纹理，先解绑旧类型
             if (impl_->textureTypes_[index] && impl_->textureTypes_[index] != glType)
                 glBindTexture(impl_->textureTypes_[index], 0);
+                
+            // 绑定新纹理
             glBindTexture(glType, texture->GetGPUObjectName());
             impl_->textureTypes_[index] = glType;
 
+            // 更新纹理参数和mipmap级别（如果需要）
             if (texture->GetParametersDirty())
                 texture->UpdateParameters();
             if (texture->GetLevelsDirty())
@@ -1544,6 +1554,7 @@ void Graphics::SetTexture(unsigned index, Texture* texture)
         }
         else if (impl_->textureTypes_[index])
         {
+            // 解绑当前纹理单元上的纹理
             glBindTexture(impl_->textureTypes_[index], 0);
             impl_->textureTypes_[index] = 0;
         }
@@ -1552,6 +1563,7 @@ void Graphics::SetTexture(unsigned index, Texture* texture)
     }
     else
     {
+        // 即使纹理对象相同，也需要检查是否需要更新参数或mipmap
         if (texture && (texture->GetParametersDirty() || texture->GetLevelsDirty()))
         {
             if (impl_->activeTexture_ != index)
@@ -1620,9 +1632,14 @@ void Graphics::SetTextureParametersDirty()
 
 void Graphics::ResetRenderTargets()
 {
+    // 重置所有渲染目标（最多MAX_RENDERTARGETS个）
     for (unsigned i = 0; i < MAX_RENDERTARGETS; ++i)
         SetRenderTarget(i, (RenderSurface*)nullptr);
+    
+    // 重置深度/模板缓冲区
     SetDepthStencil((RenderSurface*)nullptr);
+    
+    // 将视口重置为整个窗口大小
     SetViewport(IntRect(0, 0, width_, height_));
 }
 

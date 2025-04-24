@@ -477,22 +477,22 @@ bool Engine::InitializeResourceCache(const VariantMap& parameters, bool removeOl
 
 void Engine::RunFrame()
 {
-    assert(initialized_);
+    assert(initialized_);  // 确保引擎已初始化
 
-    // If not headless, and the graphics subsystem no longer has a window open, assume we should exit
+    // 检查是否需要退出：非无头模式且图形子系统窗口已关闭
     if (!headless_ && !GetSubsystem<Graphics>()->IsInitialized())
         exiting_ = true;
 
-    if (exiting_)
+    if (exiting_)  // 如果正在退出则直接返回
         return;
 
-    // Note: there is a minimal performance cost to looking up subsystems (uses a hashmap); if they would be looked up several
-    // times per frame it would be better to cache the pointers
-    auto* time = GetSubsystem<Time>();
-    auto* input = GetSubsystem<Input>();
-    auto* audio = GetSubsystem<Audio>();
+    // 获取关键子系统实例
+    auto* time = GetSubsystem<Time>();    // 时间子系统
+    auto* input = GetSubsystem<Input>();  // 输入子系统  
+    auto* audio = GetSubsystem<Audio>();  // 音频子系统
 
 #ifdef URHO3D_PROFILING
+    // 性能分析：开始新一帧的统计
     if (EventProfiler::IsActive())
     {
         auto* eventProfiler = GetSubsystem<EventProfiler>();
@@ -501,36 +501,35 @@ void Engine::RunFrame()
     }
 #endif
 
-    time->BeginFrame(timeStep_);
+    time->BeginFrame(timeStep_);  // 开始帧计时
 
-    // If pause when minimized -mode is in use, stop updates and audio as necessary
+    // 处理最小化暂停逻辑
     if (pauseMinimized_ && input->IsMinimized())
     {
-        if (audio->IsPlaying())
+        if (audio->IsPlaying())  // 如果音频正在播放则暂停
         {
             audio->Stop();
-            audioPaused_ = true;
+            audioPaused_ = true;  // 标记音频被引擎暂停
         }
     }
     else
     {
-        // Only unpause when it was paused by the engine
+        // 恢复之前被引擎暂停的音频
         if (audioPaused_)
         {
             audio->Play();
             audioPaused_ = false;
         }
 
-        Update();
+        Update();  // 执行游戏逻辑更新
     }
 
-    Render();
-    ApplyFrameLimit();
+    Render();          // 执行渲染
+    ApplyFrameLimit(); // 应用帧率限制
 
-    time->EndFrame();
+    time->EndFrame();  // 结束帧计时
 
-    // Mark a frame for profiling
-    URHO3D_PROFILE_FRAME();
+    URHO3D_PROFILE_FRAME();  // 标记帧分析点
 }
 
 Console* Engine::CreateConsole()
@@ -693,39 +692,47 @@ void Engine::DumpMemory()
 
 void Engine::Update()
 {
-    URHO3D_PROFILE(Update);
+    URHO3D_PROFILE(Update);  // 开始性能分析标记
 
-    // Logic update event
-    using namespace Update;
+    // 逻辑更新事件
+    using namespace Update;  // 使用Update命名空间中的常量
 
-    VariantMap& eventData = GetEventDataMap();
-    eventData[P_TIMESTEP] = timeStep_;
-    SendEvent(E_UPDATE, eventData);
+    VariantMap& eventData = GetEventDataMap();  // 获取事件数据映射
+    eventData[P_TIMESTEP] = timeStep_;  // 设置时间步长参数
+    SendEvent(E_UPDATE, eventData);  // 发送逻辑更新事件
 
-    // Logic post-update event
-    SendEvent(E_POSTUPDATE, eventData);
+    // 逻辑后更新事件
+    SendEvent(E_POSTUPDATE, eventData);  // 发送逻辑后更新事件
 
-    // Rendering update event
-    SendEvent(E_RENDERUPDATE, eventData);
+    // 渲染更新事件
+    SendEvent(E_RENDERUPDATE, eventData);  // 发送渲染更新事件
 
-    // Post-render update event
-    SendEvent(E_POSTRENDERUPDATE, eventData);
+    // 渲染后更新事件
+    SendEvent(E_POSTRENDERUPDATE, eventData);  // 发送渲染后更新事件
 }
 
 void Engine::Render()
 {
+    // 检查是否是无头模式(无图形界面)，如果是则直接返回
     if (headless_)
         return;
 
+    // 开始渲染性能分析标记
     URHO3D_PROFILE(Render);
 
-    // If device is lost, BeginFrame will fail and we skip rendering
+    // 获取图形子系统并开始新帧
+    // 如果设备丢失(BeginFrame会返回false)，则跳过本次渲染
     auto* graphics = GetSubsystem<Graphics>();
     if (!graphics->BeginFrame())
         return;
 
+    // 执行渲染器的主渲染流程
     GetSubsystem<Renderer>()->Render();
+    
+    // 执行UI系统的渲染
     GetSubsystem<UI>()->Render();
+    
+    // 结束当前帧的渲染
     graphics->EndFrame();
 }
 

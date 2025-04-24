@@ -65,22 +65,27 @@ void Button::RegisterObject(Context* context)
 
 void Button::Update(float timeStep)
 {
+    // 如果按钮处于按下状态但鼠标不再悬停，则重置按下状态
     if (!hovering_ && pressed_)
         SetPressed(false);
 
-    // Send repeat events if pressed
+    // 处理按钮重复按下事件
     if (pressed_ && repeatRate_ > 0.0f)
     {
+        // 更新重复计时器
         repeatTimer_ -= timeStep;
+        
+        // 检查是否达到重复触发时间间隔
         if (repeatTimer_ <= 0.0f)
         {
+            // 重置计时器，基于重复频率
             repeatTimer_ += 1.0f / repeatRate_;
 
+            // 发送按钮重复按下事件
             using namespace Pressed;
-
             VariantMap& eventData = GetEventDataMap();
-            eventData[P_ELEMENT] = this;
-            SendEvent(E_PRESSED, eventData);
+            eventData[P_ELEMENT] = this;  // 设置事件源为当前按钮
+            SendEvent(E_PRESSED, eventData);  // 发送按下事件
         }
     }
 }

@@ -691,19 +691,52 @@ void Renderer::Update(float timeStep)
 
 void Renderer::Render()
 {
-    // Engine does not render when window is closed or device is lost
+    // 检查图形系统是否初始化且设备未丢失
     assert(graphics_ && graphics_->IsInitialized() && !graphics_->IsDeviceLost());
 
+    // 开始渲染性能分析
     URHO3D_PROFILE(RenderViews);
 
-    // If the indirection textures have lost content (OpenGL mode only), restore them now
+    // OpenGL模式下：如果间接纹理丢失内容则恢复数据
     if (faceSelectCubeMap_ && faceSelectCubeMap_->IsDataLost())
         SetIndirectionTextureData();
 
+    // 设置默认纹理过滤模式和各向异性
     graphics_->SetDefaultTextureFilterMode(textureFilterMode_);
     graphics_->SetDefaultTextureAnisotropy((unsigned)textureAnisotropy_);
+    // 1.视图的定义：
+    // 视图(View)是场景(Camera)和渲染目标(RenderTarget)的组合
+    // 它包含了摄像机看到的内容以及如何渲染这些内容的所有信息
+    // 每个视图对应一个独立的渲染过程
+    // 2.视图的主要功能：
+    // 检查是否有视图渲染到后台缓冲区
+    // 视图负责：
+    // 1. 场景的可见性判断（通过八叉树裁剪）
+    // 2. 渲染队列的排序和组织
+    // 3. 渲染管线的执行
+    /*
+    void View::Render()
+    {
+        // ... 执行实际的渲染逻辑 ...
+    }
+    */
+    //    3.视图与显示效果的关系：
+    // 每个视图对应一个独立的渲染输出
+    // 可以创建多个视图实现分屏、画中画等效果
+    // 视图可以渲染到不同的目标（主屏幕、纹理等）
+    // 4.视图的典型使用场景：
+    // 1. 主视图 - 渲染整个场景
+    // viewport1->SetView(new View(context_));
 
-    // If no views that render to the backbuffer, clear the screen so that e.g. the UI is not rendered on top of previous frame
+    // 2. 小地图视图 - 渲染俯视视角
+    // viewport2->SetView(new View(context_));
+
+    // 3. 反射视图 - 渲染水面反射
+    // viewport3->SetView(new View(context_));
+    // 5.E_ENDALLVIEWSRENDER事件：
+    // 这是在所有视图渲染完成后触发的事件
+    // 允许在UI渲染前执行自定义渲染操作
+    // 常用于后期处理效果或自定义绘制
     bool hasBackbufferViews = false;
     for (unsigned i = 0; i < views_.Size(); ++i)
     {
@@ -713,6 +746,8 @@ void Renderer::Render()
             break;
         }
     }
+    
+    // 如果没有视图渲染到后台缓冲区，则清除屏幕
     if (!hasBackbufferViews)
     {
         graphics_->SetBlendMode(BLEND_REPLACE);
@@ -721,28 +756,29 @@ void Renderer::Render()
         graphics_->SetScissorTest(false);
         graphics_->SetStencilTest(false);
         graphics_->ResetRenderTargets();
+        // 使用默认区域的雾色清除颜色、深度和模板缓冲区
         graphics_->Clear(CLEAR_COLOR | CLEAR_DEPTH | CLEAR_STENCIL, defaultZone_->GetFogColor());
     }
 
-    // Render views from last to first. Each main (backbuffer) view is rendered after the auxiliary views it depends on
+    // 从后往前渲染视图（依赖视图先渲染）
     for (unsigned i = views_.Size() - 1; i < views_.Size(); --i)
     {
         if (!views_[i])
             continue;
 
-        // Screen buffers can be reused between views, as each is rendered completely
+        // 准备视图渲染（可重用屏幕缓冲区）
         PrepareViewRender();
         views_[i]->Render();
     }
 
-    // Copy the number of batches & primitives from Graphics so that we can account for 3D geometry only
+    // 从图形系统获取图元批次数量统计（仅3D几何体）
     numPrimitives_ = graphics_->GetNumPrimitives();
     numBatches_ = graphics_->GetNumBatches();
 
-    // Remove unused occlusion buffers and renderbuffers
+    // 清理未使用的遮挡缓冲区和渲染缓冲区
     RemoveUnusedBuffers();
 
-    // All views done, custom rendering can now be done before UI
+    // 所有视图渲染完成，触发自定义渲染事件（UI渲染前）
     SendEvent(E_ENDALLVIEWSRENDER);
 }
 

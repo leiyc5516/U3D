@@ -316,22 +316,22 @@ void UI::Clear()
 
 void UI::Update(float timeStep)
 {
-    assert(rootElement_ && rootModalElement_);
+    assert(rootElement_ && rootModalElement_);  // 确保根元素和模态根元素存在
 
-    URHO3D_PROFILE(UpdateUI);
+    URHO3D_PROFILE(UpdateUI);  // 性能分析标记
 
-    // Expire hovers
+    // 重置所有悬停元素的标记状态
     for (HashMap<WeakPtr<UIElement>, bool>::Iterator i = hoveredElements_.Begin(); i != hoveredElements_.End(); ++i)
         i->second_ = false;
 
     auto* input = GetSubsystem<Input>();
-    bool mouseGrabbed = input->IsMouseGrabbed();
+    bool mouseGrabbed = input->IsMouseGrabbed();  // 检查鼠标是否被捕获
 
     IntVector2 cursorPos;
     bool cursorVisible;
-    GetCursorPositionAndVisible(cursorPos, cursorVisible);
+    GetCursorPositionAndVisible(cursorPos, cursorVisible);  // 获取光标位置和可见状态
 
-    // Drag begin based on time
+    // 处理基于时间的拖拽开始逻辑
     if (dragElementsCount_ > 0 && !mouseGrabbed)
     {
         for (HashMap<WeakPtr<UIElement>, UI::DragData*>::Iterator i = dragElements_.Begin(); i != dragElements_.End();)
@@ -339,23 +339,26 @@ void UI::Update(float timeStep)
             WeakPtr<UIElement> dragElement = i->first_;
             UI::DragData* dragData = i->second_;
 
-            if (!dragElement)
+            if (!dragElement)  // 如果拖拽元素已销毁则移除
             {
                 i = DragElementErase(i);
                 continue;
             }
 
-            if (!dragData->dragBeginPending)
+            if (!dragData->dragBeginPending)  // 跳过已开始拖拽的元素
             {
                 ++i;
                 continue;
             }
 
+            // 检查拖拽开始计时器是否超时
             if (dragData->dragBeginTimer.GetMSec(false) >= (unsigned)(dragBeginInterval_ * 1000))
             {
                 dragData->dragBeginPending = false;
                 IntVector2 beginSendPos = dragData->dragBeginSumPos / dragData->numDragButtons;
                 dragConfirmedCount_++;
+                
+                // 根据输入类型调用不同的拖拽开始处理
                 if (!usingTouchInput_)
                     dragElement->OnDragBegin(dragElement->ScreenToElement(beginSendPos), beginSendPos, dragData->dragButtons,
                         qualifiers_, cursor_);
@@ -369,36 +372,35 @@ void UI::Update(float timeStep)
         }
     }
 
-    // Mouse hover
+    // 处理鼠标悬停逻辑
     if (!mouseGrabbed && !input->GetTouchEmulation())
     {
         if (!usingTouchInput_ && cursorVisible)
             ProcessHover(cursorPos, mouseButtons_, qualifiers_, cursor_);
     }
 
-    // Touch hover
+    // 处理触摸悬停逻辑
     unsigned numTouches = input->GetNumTouches();
     for (unsigned i = 0; i < numTouches; ++i)
     {
         TouchState* touch = input->GetTouch(i);
         IntVector2 touchPos = touch->position_;
-        touchPos = ConvertSystemToUI(touchPos);
+        touchPos = ConvertSystemToUI(touchPos);  // 转换触摸坐标到UI坐标系
         ProcessHover(touchPos, MakeTouchIDMask(touch->touchID_), QUAL_NONE, nullptr);
     }
 
-    // End hovers that expired without refreshing
+    // 清理过期的悬停元素
     for (HashMap<WeakPtr<UIElement>, bool>::Iterator i = hoveredElements_.Begin(); i != hoveredElements_.End();)
     {
-        if (i->first_.Expired() || !i->second_)
+        if (i->first_.Expired() || !i->second_)  // 检查元素是否已销毁或未刷新
         {
             UIElement* element = i->first_;
             if (element)
             {
                 using namespace HoverEnd;
-
                 VariantMap& eventData = GetEventDataMap();
                 eventData[P_ELEMENT] = element;
-                element->SendEvent(E_HOVEREND, eventData);
+                element->SendEvent(E_HOVEREND, eventData);  // 发送悬停结束事件
             }
             i = hoveredElements_.Erase(i);
         }
@@ -406,6 +408,7 @@ void UI::Update(float timeStep)
             ++i;
     }
 
+    // 更新根元素和模态根元素
     Update(timeStep, rootElement_);
     Update(timeStep, rootModalElement_);
 }
@@ -996,15 +999,21 @@ void UI::Initialize()
 
 void UI::Update(float timeStep, UIElement* element)
 {
-    // Keep a weak pointer to the element in case it destroys itself on update
+    // 使用弱指针保存元素引用，防止元素在更新过程中被销毁
     WeakPtr<UIElement> elementWeak(element);
 
+    // 更新当前元素的逻辑状态
     element->Update(timeStep);
+    
+    // 检查元素是否已被销毁
     if (elementWeak.Expired())
         return;
 
+    // 获取当前元素的所有子元素
     const Vector<SharedPtr<UIElement> >& children = element->GetChildren();
-    // Update of an element may modify its child vector. Use just index-based iteration to be safe
+    
+    // 使用基于索引的迭代方式安全地更新所有子元素
+    // 注意：元素更新可能会修改其子元素列表，因此不能使用迭代器
     for (unsigned i = 0; i < children.Size(); ++i)
         Update(timeStep, children[i]);
 }
@@ -1336,27 +1345,30 @@ UIElement* UI::GetFocusableElement(UIElement* element)
 
 void UI::GetCursorPositionAndVisible(IntVector2& pos, bool& visible)
 {
-    // Prefer software cursor then OS-specific cursor
+    // 优先使用软件光标（UI系统自带的光标）
     if (cursor_ && cursor_->IsVisible())
     {
-        pos = cursor_->GetPosition();
-        visible = true;
+        pos = cursor_->GetPosition();  // 获取软件光标位置
+        visible = true;  // 光标可见
     }
+    // 如果鼠标处于相对模式（如FPS游戏中的视角控制），则认为光标可见
     else if (GetSubsystem<Input>()->GetMouseMode() == MM_RELATIVE)
         visible = true;
     else
     {
         auto* input = GetSubsystem<Input>();
-        visible = input->IsMouseVisible();
+        visible = input->IsMouseVisible();  // 检查操作系统光标是否可见
 
+        // 如果操作系统光标不可见但UI系统有光标，使用UI光标位置
         if (!visible && cursor_)
         {
             pos = cursor_->GetPosition();
         }
+        // 否则使用操作系统光标位置并转换为UI坐标
         else
         {
             pos = input->GetMousePosition();
-            pos = ConvertSystemToUI(pos);
+            pos = ConvertSystemToUI(pos);  // 将屏幕坐标转换为UI坐标
         }
     }
 }
@@ -1380,40 +1392,44 @@ void UI::ReleaseFontFaces()
 
 void UI::ProcessHover(const IntVector2& windowCursorPos, MouseButtonFlags buttons, QualifierFlags qualifiers, Cursor* cursor)
 {
+    // 获取当前光标位置下的UI元素
     IntVector2 cursorPos;
     WeakPtr<UIElement> element(GetElementAt(windowCursorPos, true, &cursorPos));
 
+    // 遍历所有正在拖拽的元素
     for (HashMap<WeakPtr<UIElement>, UI::DragData*>::Iterator i = dragElements_.Begin(); i != dragElements_.End();)
     {
         WeakPtr<UIElement> dragElement = i->first_;
         UI::DragData* dragData = i->second_;
 
+        // 如果拖拽元素已销毁则移除
         if (!dragElement)
         {
             i = DragElementErase(i);
             continue;
         }
 
+        // 判断拖拽源、目标和拖拽测试状态
         bool dragSource = dragElement && (dragElement->GetDragDropMode() & DD_SOURCE);
         bool dragTarget = element && (element->GetDragDropMode() & DD_TARGET);
         bool dragDropTest = dragSource && dragTarget && element != dragElement;
-        // If drag start event has not been posted yet, do not do drag handling here
+        
+        // 如果拖拽还未正式开始，则重置相关状态
         if (dragData->dragBeginPending)
             dragSource = dragTarget = dragDropTest = false;
 
-        // Hover effect
-        // If a drag is going on, transmit hover only to the element being dragged, unless it's a drop target
+        // 处理悬停效果：在拖拽过程中只传递给被拖拽元素或拖放目标
         if (element && element->IsEnabled())
         {
             if (dragElement == element || dragDropTest)
             {
                 element->OnHover(element->ScreenToElement(cursorPos), cursorPos, buttons, qualifiers, cursor);
 
-                // Begin hover event
+                // 触发悬停开始事件
                 if (!hoveredElements_.Contains(element))
                 {
                     SendDragOrHoverEvent(E_HOVERBEGIN, element, cursorPos, IntVector2::ZERO, nullptr);
-                    // Exit if element is destroyed by the event handling
+                    // 如果元素在事件处理中被销毁则直接返回
                     if (!element)
                         return;
                 }
@@ -1421,7 +1437,7 @@ void UI::ProcessHover(const IntVector2& windowCursorPos, MouseButtonFlags button
             }
         }
 
-        // Drag and drop test
+        // 处理拖放测试逻辑
         if (dragDropTest)
         {
             bool accept = element->OnDragDropTest(dragElement);
@@ -1429,6 +1445,7 @@ void UI::ProcessHover(const IntVector2& windowCursorPos, MouseButtonFlags button
             {
                 using namespace DragDropTest;
 
+                // 发送拖放测试事件
                 VariantMap& eventData = GetEventDataMap();
                 eventData[P_SOURCE] = dragElement.Get();
                 eventData[P_TARGET] = element.Get();
@@ -1437,6 +1454,7 @@ void UI::ProcessHover(const IntVector2& windowCursorPos, MouseButtonFlags button
                 accept = eventData[P_ACCEPT].GetBool();
             }
 
+            // 根据测试结果设置光标形状
             if (cursor)
                 cursor->SetShape(accept ? CS_ACCEPTDROP : CS_REJECTDROP);
         }
@@ -1446,19 +1464,17 @@ void UI::ProcessHover(const IntVector2& windowCursorPos, MouseButtonFlags button
         ++i;
     }
 
-    // Hover effect
-    // If no drag is going on, transmit hover event.
-    if (element && element->IsEnabled())
+    // 如果没有拖拽操作，处理普通悬停事件
     {
         if (dragElementsCount_ == 0)
         {
             element->OnHover(element->ScreenToElement(cursorPos), cursorPos, buttons, qualifiers, cursor);
 
-            // Begin hover event
+            // 触发悬停开始事件
             if (!hoveredElements_.Contains(element))
             {
                 SendDragOrHoverEvent(E_HOVERBEGIN, element, cursorPos, IntVector2::ZERO, nullptr);
-                // Exit if element is destroyed by the event handling
+                // 如果元素在事件处理中被销毁则直接返回
                 if (!element)
                     return;
             }
@@ -2077,8 +2093,9 @@ void UI::HandleBeginFrame(StringHash eventType, VariantMap& eventData)
 
 void UI::HandlePostUpdate(StringHash eventType, VariantMap& eventData)
 {
-    using namespace PostUpdate;
+    using namespace PostUpdate;  // 使用PostUpdate命名空间中的常量
 
+    // 调用UI系统的更新逻辑，传递从事件数据中获取的时间步长
     Update(eventData[P_TIMESTEP].GetFloat());
 }
 

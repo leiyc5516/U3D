@@ -63,46 +63,47 @@ Application::Application(Context* context) :
 int Application::Run()
 {
 #if !defined(__GNUC__) || __EXCEPTIONS
-    try
+    try  // 异常处理：非GCC编译器或启用了异常处理时使用try块
     {
 #endif
-        Setup();
-        if (exitCode_)
-            return exitCode_;
+        Setup();  // 执行应用初始化设置
+        if (exitCode_)  // 如果初始化过程中设置了退出码
+            return exitCode_;  // 直接返回错误码
 
-        if (!engine_->Initialize(engineParameters_))
+        if (!engine_->Initialize(engineParameters_))  // 初始化引擎
         {
-            ErrorExit();
-            return exitCode_;
+            ErrorExit();  // 初始化失败时调用错误处理
+            return exitCode_;  // 返回失败状态码
         }
 
-        Start();
-        if (exitCode_)
-            return exitCode_;
+        Start();  // 调用应用启动逻辑
+        if (exitCode_)  // 检查启动过程中是否出错
+            return exitCode_;  // 返回错误码
 
-        // Platforms other than iOS/tvOS and Emscripten run a blocking main loop
+        // 非iOS/tvOS/Emscripten平台使用阻塞式主循环
 #if !defined(IOS) && !defined(TVOS) && !defined(__EMSCRIPTEN__)
-        while (!engine_->IsExiting())
-            engine_->RunFrame();
+        while (!engine_->IsExiting())  // 主循环：直到引擎请求退出
+            engine_->RunFrame();  // 执行每帧逻辑
 
-        Stop();
-        // iOS/tvOS will setup a timer for running animation frames so eg. Game Center can run. In this case we do not
-        // support calling the Stop() function, as the application will never stop manually
+        Stop();  // 调用应用停止逻辑
+        // iOS/tvOS平台使用动画回调机制，因此不支持手动调用Stop()
 #else
 #if defined(IOS) || defined(TVOS)
+        // iOS/tvOS: 设置SDL动画回调
         SDL_iPhoneSetAnimationCallback(GetSubsystem<Graphics>()->GetWindow(), 1, &RunFrame, engine_);
 #elif defined(__EMSCRIPTEN__)
+        // Emscripten: 设置主循环回调
         emscripten_set_main_loop_arg(RunFrame, engine_, 0, 1);
 #endif
 #endif
 
-        return exitCode_;
+        return exitCode_;  // 返回最终退出码
 #if !defined(__GNUC__) || __EXCEPTIONS
     }
-    catch (std::bad_alloc&)
+    catch (std::bad_alloc&)  // 捕获内存分配异常
     {
         ErrorDialog(GetTypeName(), "An out-of-memory error occurred. The application will now exit.");
-        return EXIT_FAILURE;
+        return EXIT_FAILURE;  // 返回内存不足错误码
     }
 #endif
 }
