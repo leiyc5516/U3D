@@ -562,32 +562,36 @@ void View::Update(const FrameInfo& frame)
 
 void View::Render()
 {
+    // 发送视图渲染开始事件
     SendViewEvent(E_BEGINVIEWRENDER);
 
+    // 检查是否有场景需要渲染，如果没有八叉树或相机则直接返回
     if (hasScenePasses_ && (!octree_ || !camera_))
     {
         SendViewEvent(E_ENDVIEWRENDER);
         return;
     }
 
+    // 更新几何体数据
     UpdateGeometries();
 
-    // Allocate screen buffers as necessary
+    // 分配屏幕缓冲区
     AllocateScreenBuffers();
+    // 发送缓冲区就绪事件
     SendViewEvent(E_VIEWBUFFERSREADY);
 
-    // Forget parameter sources from the previous view
+    // 清除上一视图的参数源
     graphics_->ClearParameterSources();
 
+    // 如果支持动态实例化则准备实例化缓冲区
     if (renderer_->GetDynamicInstancing() && graphics_->GetInstancingSupport())
         PrepareInstancingBuffer();
 
-    // It is possible, though not recommended, that the same camera is used for multiple main views. Set automatic aspect ratio
-    // to ensure correct projection will be used
+    // 设置相机的自动宽高比
     if (camera_ && camera_->GetAutoAspectRatio())
         camera_->SetAspectRatioInternal((float)(viewSize_.x_) / (float)(viewSize_.y_));
 
-    // Bind the face selection and indirection cube maps for point light shadows
+    // 绑定点光源阴影所需的面选择和间接立方体贴图
 #ifndef GL_ES_VERSION_2_0
     if (renderer_->GetDrawShadows())
     {
@@ -597,23 +601,18 @@ void View::Render()
 #endif
 
 #ifdef URHO3D_OPENGL
+    // OpenGL下渲染到纹理时需要翻转投影
     if (renderTarget_)
     {
-        // On OpenGL, flip the projection if rendering to a texture so that the texture can be addressed in the same way
-        // as a render texture produced on Direct3D9
-        // Note that the state of the FlipVertical mode is toggled here rather than enabled
-        // The reason for this is that we want the mode to be the opposite of what the user has currently set for the
-        // camera when rendering to texture for OpenGL
-        // This mode is returned to the original state by toggling it again below, after the render
         if (camera_)
             camera_->SetFlipVertical(!camera_->GetFlipVertical());
     }
 #endif
 
-    // Render
+    // 执行渲染路径命令
     ExecuteRenderPathCommands();
 
-    // Reset state after commands
+    // 重置渲染状态
     graphics_->SetFillMode(FILL_SOLID);
     graphics_->SetLineAntiAlias(false);
     graphics_->SetClipPlane(false);
@@ -622,14 +621,13 @@ void View::Render()
     graphics_->SetScissorTest(false);
     graphics_->SetStencilTest(false);
 
-    // Draw the associated debug geometry now if enabled
+    // 如果启用了调试绘制，则绘制调试几何体
     if (drawDebug_ && octree_ && camera_)
     {
         auto* debug = octree_->GetComponent<DebugRenderer>();
         if (debug && debug->IsEnabledEffective() && debug->HasContent())
         {
-            // If used resolve from backbuffer, blit first to the backbuffer to ensure correct depth buffer on OpenGL
-            // Otherwise use the last rendertarget and blit after debug geometry
+            // 处理从后台缓冲区解析的情况
             if (usedResolve_ && currentRenderTarget_ != renderTarget_)
             {
                 BlitFramebuffer(currentRenderTarget_->GetParentTexture(), renderTarget_, false);
@@ -637,13 +635,14 @@ void View::Render()
                 lastCustomDepthSurface_ = nullptr;
             }
 
+            // 设置渲染目标和深度模板缓冲区
             graphics_->SetRenderTarget(0, currentRenderTarget_);
             for (unsigned i = 1; i < MAX_RENDERTARGETS; ++i)
                 graphics_->SetRenderTarget(i, (RenderSurface*)nullptr);
 
-            // If a custom depth surface was used, use it also for debug rendering
             graphics_->SetDepthStencil(lastCustomDepthSurface_ ? lastCustomDepthSurface_ : GetDepthStencil(currentRenderTarget_));
 
+            // 设置视口并渲染调试几何体
             IntVector2 rtSizeNow = graphics_->GetRenderTargetDimensions();
             IntRect viewport = (currentRenderTarget_ == renderTarget_) ? viewRect_ : IntRect(0, 0, rtSizeNow.x_,
                 rtSizeNow.y_);
@@ -1279,19 +1278,22 @@ void View::GetBaseBatches()
 
 void View::UpdateGeometries()
 {
-    // Update geometries in the source view if necessary (prepare order may differ from render order)
+    // 1. 检查并更新源视图的几何体（如果存在且未更新）
     if (sourceView_ && !sourceView_->geometriesUpdated_)
     {
         sourceView_->UpdateGeometries();
         return;
     }
 
+    // 2. 开始性能分析区块
     URHO3D_PROFILE(SortAndUpdateGeometry);
 
+    // 3. 获取工作队列子系统
     auto* queue = GetSubsystem<WorkQueue>();
 
-    // Sort batches
+    // 4. 批处理排序阶段
     {
+        // 4.1 遍历渲染路径命令，为场景通道创建排序工作项
         for (unsigned i = 0; i < renderPath_->commands_.Size(); ++i)
         {
             const RenderPathCommand& command = renderPath_->commands_[i];
@@ -1302,6 +1304,7 @@ void View::UpdateGeometries()
             {
                 SharedPtr<WorkItem> item = queue->GetFreeItem();
                 item->priority_ = M_MAX_UNSIGNED;
+                // 根据排序模式选择不同的排序函数
                 item->workFunction_ =
                     command.sortMode_ == SORT_FRONTTOBACK ? SortBatchQueueFrontToBackWork : SortBatchQueueBackToFrontWork;
                 item->start_ = &batchQueues_[command.passIndex_];
@@ -1309,14 +1312,17 @@ void View::UpdateGeometries()
             }
         }
 
+        // 4.2 为光源队列和阴影队列创建排序工作项
         for (Vector<LightBatchQueue>::Iterator i = lightQueues_.Begin(); i != lightQueues_.End(); ++i)
         {
+            // 光源队列排序
             SharedPtr<WorkItem> lightItem = queue->GetFreeItem();
             lightItem->priority_ = M_MAX_UNSIGNED;
             lightItem->workFunction_ = SortLightQueueWork;
             lightItem->start_ = &(*i);
             queue->AddWorkItem(lightItem);
 
+            // 阴影分割排序（如果有）
             if (i->shadowSplits_.Size())
             {
                 SharedPtr<WorkItem> shadowItem = queue->GetFreeItem();
@@ -1328,13 +1334,11 @@ void View::UpdateGeometries()
         }
     }
 
-    // Update geometries. Split into threaded and non-threaded updates.
+    // 5. 几何体更新阶段（分为多线程和主线程更新）
     {
         if (threadedGeometries_.Size())
         {
-            // In special cases (context loss, multi-view) a drawable may theoretically first have reported a threaded update, but will actually
-            // require a main thread update. Check these cases first and move as applicable. The threaded work routine will tolerate the null
-            // pointer holes that we leave to the threaded update queue.
+            // 5.1 检查并处理需要主线程更新的几何体
             for (PODVector<Drawable*>::Iterator i = threadedGeometries_.Begin(); i != threadedGeometries_.End(); ++i)
             {
                 if ((*i)->GetUpdateGeometryType() == UPDATE_MAIN_THREAD)
@@ -1344,7 +1348,8 @@ void View::UpdateGeometries()
                 }
             }
 
-            int numWorkItems = queue->GetNumThreads() + 1; // Worker threads + main thread
+            // 5.2 创建工作项进行多线程几何体更新
+            int numWorkItems = queue->GetNumThreads() + 1; // 工作线程数+主线程
             int drawablesPerItem = threadedGeometries_.Size() / numWorkItems;
 
             PODVector<Drawable*>::Iterator start = threadedGeometries_.Begin();
@@ -1449,13 +1454,15 @@ void View::GetLitBatches(Drawable* drawable, LightBatchQueue& lightQueue, BatchQ
 
 void View::ExecuteRenderPathCommands()
 {
+    // 1. 确定实际使用的视图（如果是源视图则使用源视图）
     View* actualView = sourceView_ ? sourceView_ : this;
-
-    // If not reusing shadowmaps, render all of them first
+    
+    // 2. 如果不重用阴影贴图且需要绘制阴影，则先渲染所有阴影贴图
     if (!renderer_->GetReuseShadowMaps() && renderer_->GetDrawShadows() && !actualView->lightQueues_.Empty())
     {
-        URHO3D_PROFILE(RenderShadowMaps);
-
+        URHO3D_PROFILE(RenderShadowMaps);  // 性能分析标记
+    
+        // 3. 遍历所有光源队列，渲染需要的阴影贴图
         for (Vector<LightBatchQueue>::Iterator i = actualView->lightQueues_.Begin(); i != actualView->lightQueues_.End(); ++i)
         {
             if (NeedRenderShadowMap(*i))

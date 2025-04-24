@@ -1561,8 +1561,11 @@ void Renderer::UpdateQueuedViewport(unsigned index)
 
 void Renderer::PrepareViewRender()
 {
+    // 重置屏幕缓冲区分配计数器
     ResetScreenBufferAllocations();
+    // 清空光源裁剪矩形缓存
     lightScissorCache_.Clear();
+    // 重置模板值为初始值1
     lightStencilValue_ = 1;
 }
 
