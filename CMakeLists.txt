@@ -28,6 +28,7 @@ project (Urho3D)
 
 # indicates that we are currently in Urho3D cmakefiles, used by UrhoCommon module
 set (IS_URHO3D TRUE)
+set (CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Set CMake modules search path
 if (NOT URHO3D_CMAKE_MODULE)
