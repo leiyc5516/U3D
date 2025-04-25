@@ -515,11 +515,16 @@ void UI::RenderUpdate()
     }
 }
 
+/**
+ * @brief 渲染UI界面
+ * @param renderUICommand 是否为UI命令渲染模式
+ */
 void UI::Render(bool renderUICommand)
 {
+    // 开始性能分析区块
     URHO3D_PROFILE(RenderUI);
 
-    // If the OS cursor is visible, apply its shape now if changed
+    // 如果操作系统光标可见且不是UI命令渲染模式，则应用光标形状
     if (!renderUICommand)
     {
         bool osCursorVisible = GetSubsystem<Input>()->IsMouseVisible();
@@ -527,54 +532,65 @@ void UI::Render(bool renderUICommand)
             cursor_->ApplyOSCursorShape();
     }
 
-    // Perform the default backbuffer render only if not rendered yet, or additional renders through RenderUI command
+    // 主渲染流程：仅在未渲染过或通过RenderUI命令请求时执行
     if (renderUICommand || !uiRendered_)
     {
+        // 设置顶点缓冲区数据
         SetVertexData(vertexBuffer_, vertexData_);
         SetVertexData(debugVertexBuffer_, debugVertexData_);
 
+        // 非UI命令模式下重置渲染目标
         if (!renderUICommand)
             graphics_->ResetRenderTargets();
-        // Render non-modal batches
+        
+        // 渲染非模态UI批次
         Render(vertexBuffer_, batches_, 0, nonModalBatchSize_);
-        // Render debug draw
+        // 渲染调试绘制批次
         Render(debugVertexBuffer_, debugDrawBatches_, 0, debugDrawBatches_.Size());
-        // Render modal batches
+        // 渲染模态UI批次
         Render(vertexBuffer_, batches_, nonModalBatchSize_, batches_.Size());
     }
 
-    // Render to UIComponent textures. This is skipped when called from the RENDERUI command
+    // 渲染到UIComponent纹理（UI命令模式下跳过）
     if (!renderUICommand)
     {
+        // 遍历所有需要渲染到纹理的UI元素
         for (auto& item : renderToTexture_)
         {
             RenderToTextureData& data = item.second_;
             if (data.rootElement_->IsEnabled())
             {
+                // 设置顶点缓冲区数据
                 SetVertexData(data.vertexBuffer_, data.vertexData_);
                 SetVertexData(data.debugVertexBuffer_, data.debugVertexData_);
 
+                // 设置渲染目标和视口
                 RenderSurface* surface = data.texture_->GetRenderSurface();
                 graphics_->SetDepthStencil(surface->GetLinkedDepthStencil());
                 graphics_->SetRenderTarget(0, surface);
                 graphics_->SetViewport(IntRect(0, 0, surface->GetWidth(), surface->GetHeight()));
                 graphics_->Clear(Urho3D::CLEAR_COLOR);
 
+                // 执行渲染
                 Render(data.vertexBuffer_, data.batches_, 0, data.batches_.Size());
                 Render(data.debugVertexBuffer_, data.debugDrawBatches_, 0, data.debugDrawBatches_.Size());
+                
+                // 清除调试绘制数据
                 data.debugDrawBatches_.Clear();
                 data.debugVertexData_.Clear();
             }
         }
 
+        // 如果有渲染到纹理的操作，重置渲染目标
         if (renderToTexture_.Size())
             graphics_->ResetRenderTargets();
     }
 
-    // Clear the debug draw batches and data
+    // 清除主调试绘制数据
     debugDrawBatches_.Clear();
     debugVertexData_.Clear();
 
+    // 标记UI已渲染
     uiRendered_ = true;
 }
 
@@ -1032,21 +1048,34 @@ void UI::SetVertexData(VertexBuffer* dest, const PODVector<float>& vertexData)
     dest->SetData(&vertexData[0]);
 }
 
+/**
+ * @brief 渲染UI批次数据到顶点缓冲区
+ * @param buffer 目标顶点缓冲区
+ * @param batches 包含渲染批次的数组
+ * @param batchStart 批次起始索引
+ * @param batchEnd 批次结束索引
+ * 
+ * 该函数负责将UI元素的渲染批次数据提交到GPU进行绘制
+ */
 void UI::Render(VertexBuffer* buffer, const PODVector<UIBatch>& batches, unsigned batchStart, unsigned batchEnd)
 {
-    // Engine does not render when window is closed or device is lost
+    // 检查图形系统状态
     assert(graphics_ && graphics_->IsInitialized() && !graphics_->IsDeviceLost());
 
     if (batches.Empty())
         return;
 
+    // 获取渲染目标和视图参数
     unsigned alphaFormat = Graphics::GetAlphaFormat();
     RenderSurface* surface = graphics_->GetRenderTarget(0);
     IntVector2 viewSize = graphics_->GetViewport().Size();
+    
+    // 计算屏幕坐标到NDC坐标的转换参数
     Vector2 invScreenSize(1.0f / (float)viewSize.x_, 1.0f / (float)viewSize.y_);
     Vector2 scale(2.0f * invScreenSize.x_, -2.0f * invScreenSize.y_);
     Vector2 offset(-1.0f, 1.0f);
 
+    // OpenGL平台特殊处理：渲染到纹理时需要翻转Y轴
     if (surface)
     {
 #ifdef URHO3D_OPENGL
@@ -1057,19 +1086,21 @@ void UI::Render(VertexBuffer* buffer, const PODVector<UIBatch>& batches, unsigne
 #endif
     }
 
+    // 构建投影矩阵
     Matrix4 projection(Matrix4::IDENTITY);
-    projection.m00_ = scale.x_ * uiScale_;
-    projection.m03_ = offset.x_;
-    projection.m11_ = scale.y_ * uiScale_;
-    projection.m13_ = offset.y_;
-    projection.m22_ = 1.0f;
-    projection.m23_ = 0.0f;
-    projection.m33_ = 1.0f;
+    projection.m00_ = scale.x_ * uiScale_;  // X轴缩放(考虑UI缩放)
+    projection.m03_ = offset.x_;           // X轴偏移
+    projection.m11_ = scale.y_ * uiScale_; // Y轴缩放(考虑UI缩放)
+    projection.m13_ = offset.y_;           // Y轴偏移
+    projection.m22_ = 1.0f;                // Z轴保持不变
+    projection.m23_ = 0.0f;                // Z轴偏移
+    projection.m33_ = 1.0f;                // 齐次坐标
 
+    // 设置渲染状态
     graphics_->ClearParameterSources();
     graphics_->SetColorWrite(true);
 #ifdef URHO3D_OPENGL
-    // Reverse winding if rendering to texture on OpenGL
+    // OpenGL渲染到纹理时需要反转裁剪模式
     if (surface)
         graphics_->SetCullMode(CULL_CW);
     else
@@ -1081,6 +1112,7 @@ void UI::Render(VertexBuffer* buffer, const PODVector<UIBatch>& batches, unsigne
     graphics_->SetStencilTest(false);
     graphics_->SetVertexBuffer(buffer);
 
+    // 获取各种着色器变体
     ShaderVariation* noTextureVS = graphics_->GetShader(VS, "Basic", "VERTEXCOLOR");
     ShaderVariation* diffTextureVS = graphics_->GetShader(VS, "Basic", "DIFFMAP VERTEXCOLOR");
     ShaderVariation* noTexturePS = graphics_->GetShader(PS, "Basic", "VERTEXCOLOR");
@@ -1089,47 +1121,57 @@ void UI::Render(VertexBuffer* buffer, const PODVector<UIBatch>& batches, unsigne
     ShaderVariation* alphaTexturePS = graphics_->GetShader(PS, "Basic", "ALPHAMAP VERTEXCOLOR");
 
 
+    // 遍历所有UI渲染批次
     for (unsigned i = batchStart; i < batchEnd; ++i)
     {
         const UIBatch& batch = batches[i];
         if (batch.vertexStart_ == batch.vertexEnd_)
             continue;
 
-        ShaderVariation* ps;
-        ShaderVariation* vs;
+        ShaderVariation* ps;  // 像素着色器
+        ShaderVariation* vs;  // 顶点着色器
 
+        // 处理非自定义材质的情况
         if (!batch.customMaterial_)
         {
             if (!batch.texture_)
             {
+                // 无纹理情况使用基础着色器
                 ps = noTexturePS;
                 vs = noTextureVS;
-            } else
+            } 
+            else
             {
-                // If texture contains only an alpha channel, use alpha shader (for fonts)
+                // 有纹理情况使用差异着色器
                 vs = diffTextureVS;
 
+                // 根据纹理格式和混合模式选择像素着色器
                 if (batch.texture_->GetFormat() == alphaFormat)
-                    ps = alphaTexturePS;
+                    ps = alphaTexturePS;  // 仅alpha通道纹理(如字体)
                 else if (batch.blendMode_ != BLEND_ALPHA && batch.blendMode_ != BLEND_ADDALPHA && batch.blendMode_ != BLEND_PREMULALPHA)
-                    ps = diffMaskTexturePS;
+                    ps = diffMaskTexturePS;  // 带alpha遮罩的纹理
                 else
-                    ps = diffTexturePS;
+                    ps = diffTexturePS;  // 普通纹理
             }
-        } else
+        }
+        // 处理自定义材质的情况
+        else
         {
             vs = diffTextureVS;
             ps = diffTexturePS;
 
+            // 从自定义材质获取技术并设置着色器
             Technique* technique = batch.customMaterial_->GetTechnique(0);
             if (technique)
             {
                 Pass* pass = nullptr;
+                // 遍历所有pass获取合适的着色器
                 for (int i = 0; i < technique->GetNumPasses(); ++i)
                 {
                     pass = technique->GetPass(i);
                     if (pass)
                     {
+                        // 设置顶点和像素着色器
                         vs = graphics_->GetShader(VS, pass->GetVertexShader(), batch.customMaterial_->GetVertexShaderDefines());
                         ps = graphics_->GetShader(PS, pass->GetPixelShader(), batch.customMaterial_->GetPixelShaderDefines());
                         break;
@@ -1138,25 +1180,30 @@ void UI::Render(VertexBuffer* buffer, const PODVector<UIBatch>& batches, unsigne
             }
         }
 
+        // 设置着色器
         graphics_->SetShaders(vs, ps);
+        
+        // 更新着色器参数
         if (graphics_->NeedParameterUpdate(SP_OBJECT, this))
-            graphics_->SetShaderParameter(VSP_MODEL, Matrix3x4::IDENTITY);
+            graphics_->SetShaderParameter(VSP_MODEL, Matrix3x4::IDENTITY);  // 模型矩阵
         if (graphics_->NeedParameterUpdate(SP_CAMERA, this))
-            graphics_->SetShaderParameter(VSP_VIEWPROJ, projection);
+            graphics_->SetShaderParameter(VSP_VIEWPROJ, projection);  // 视图投影矩阵
         if (graphics_->NeedParameterUpdate(SP_MATERIAL, this))
-            graphics_->SetShaderParameter(PSP_MATDIFFCOLOR, Color(1.0f, 1.0f, 1.0f, 1.0f));
+            graphics_->SetShaderParameter(PSP_MATDIFFCOLOR, Color(1.0f, 1.0f, 1.0f, 1.0f));  // 材质漫反射颜色
 
+        // 设置时间相关参数
         float elapsedTime = GetSubsystem<Time>()->GetElapsedTime();
         graphics_->SetShaderParameter(VSP_ELAPSEDTIME, elapsedTime);
         graphics_->SetShaderParameter(PSP_ELAPSEDTIME, elapsedTime);
 
+        // 处理裁剪矩形(考虑UI缩放)
         IntRect scissor = batch.scissor_;
         scissor.left_ = (int)(scissor.left_ * uiScale_);
         scissor.top_ = (int)(scissor.top_ * uiScale_);
         scissor.right_ = (int)(scissor.right_ * uiScale_);
         scissor.bottom_ = (int)(scissor.bottom_ * uiScale_);
 
-        // Flip scissor vertically if using OpenGL texture rendering
+        // OpenGL平台特殊处理：渲染到纹理时需要翻转Y轴
 #ifdef URHO3D_OPENGL
         if (surface)
         {
@@ -1167,42 +1214,51 @@ void UI::Render(VertexBuffer* buffer, const PODVector<UIBatch>& batches, unsigne
         }
 #endif
 
-        graphics_->SetBlendMode(batch.blendMode_);
-        graphics_->SetScissorTest(true, scissor);
-        if (!batch.customMaterial_)
-        {
-            graphics_->SetTexture(0, batch.texture_);
-        } else
-        {
-            // Update custom shader parameters if needed
-            if (graphics_->NeedParameterUpdate(SP_MATERIAL, reinterpret_cast<const void*>(batch.customMaterial_->GetShaderParameterHash())))
-            {
-                auto shader_parameters = batch.customMaterial_->GetShaderParameters();
-                for (auto it = shader_parameters.Begin(); it != shader_parameters.End(); ++it)
-                {
-                    graphics_->SetShaderParameter(it->second_.name_, it->second_.value_);
-                }
-            }
-            // Apply custom shader textures
-            auto textures = batch.customMaterial_->GetTextures();
-            for (auto it = textures.Begin(); it != textures.End(); ++it)
-            {
-                graphics_->SetTexture(it->first_, it->second_);
-            }
-        }
+        // 设置渲染状态
+        graphics_->SetBlendMode(batch.blendMode_);  // 混合模式
+        graphics_->SetScissorTest(true, scissor);  // 裁剪测试
+       // 处理非自定义材质的情况
+       if (!batch.customMaterial_)
+       {
+           // 设置默认纹理到纹理单元0
+           graphics_->SetTexture(0, batch.texture_);
+       }
+       // 处理自定义材质的情况
+       else
+       {
+           // 检查是否需要更新自定义着色器参数
+           if (graphics_->NeedParameterUpdate(SP_MATERIAL, reinterpret_cast<const void*>(batch.customMaterial_->GetShaderParameterHash())))
+           {
+               // 获取并设置所有自定义着色器参数
+               auto shader_parameters = batch.customMaterial_->GetShaderParameters();
+               for (auto it = shader_parameters.Begin(); it != shader_parameters.End(); ++it)
+               {
+                   graphics_->SetShaderParameter(it->second_.name_, it->second_.value_);
+               }
+           }
+           
+           // 设置自定义材质的所有纹理
+           auto textures = batch.customMaterial_->GetTextures();
+           for (auto it = textures.Begin(); it != textures.End(); ++it)
+           {
+               graphics_->SetTexture(it->first_, it->second_);
+           }
+       }
 
-        graphics_->Draw(TRIANGLE_LIST, batch.vertexStart_ / UI_VERTEX_SIZE,
-            (batch.vertexEnd_ - batch.vertexStart_) / UI_VERTEX_SIZE);
+       // 执行绘制调用
+       graphics_->Draw(TRIANGLE_LIST, batch.vertexStart_ / UI_VERTEX_SIZE,
+           (batch.vertexEnd_ - batch.vertexStart_) / UI_VERTEX_SIZE);
 
-        if (batch.customMaterial_)
-        {
-            // Reset textures used by the batch custom material
-            auto textures = batch.customMaterial_->GetTextures();
-            for (auto it = textures.Begin(); it != textures.End(); ++it)
-            {
-                graphics_->SetTexture(it->first_, 0);
-            }
-        }
+       // 如果是自定义材质，绘制完成后需要重置纹理状态
+       if (batch.customMaterial_)
+       {
+           // 重置所有自定义材质使用的纹理
+           auto textures = batch.customMaterial_->GetTextures();
+           for (auto it = textures.Begin(); it != textures.End(); ++it)
+           {
+               graphics_->SetTexture(it->first_, 0);  // 将纹理单元设置为空
+           }
+       }
     }
 }
 

@@ -1452,289 +1452,341 @@ void View::GetLitBatches(Drawable* drawable, LightBatchQueue& lightQueue, BatchQ
     }
 }
 
-void View::ExecuteRenderPathCommands()
-{
-    // 1. 确定实际使用的视图（如果是源视图则使用源视图）
-    View* actualView = sourceView_ ? sourceView_ : this;
-    
-    // 2. 如果不重用阴影贴图且需要绘制阴影，则先渲染所有阴影贴图
-    if (!renderer_->GetReuseShadowMaps() && renderer_->GetDrawShadows() && !actualView->lightQueues_.Empty())
-    {
-        URHO3D_PROFILE(RenderShadowMaps);  // 性能分析标记
-    
-        // 3. 遍历所有光源队列，渲染需要的阴影贴图
-        for (Vector<LightBatchQueue>::Iterator i = actualView->lightQueues_.Begin(); i != actualView->lightQueues_.End(); ++i)
-        {
-            if (NeedRenderShadowMap(*i))
-                RenderShadowMap(*i);
-        }
+void View::ExecuteRenderPathCommands() {
+  // 1. 确定实际使用的视图（如果是源视图则使用源视图）
+  View *actualView = sourceView_ ? sourceView_ : this;
+
+  // 2. 如果不重用阴影贴图且需要绘制阴影，则先渲染所有阴影贴图
+  if (!renderer_->GetReuseShadowMaps() && renderer_->GetDrawShadows() &&
+      !actualView->lightQueues_.Empty()) {
+    URHO3D_PROFILE(RenderShadowMaps); // 性能分析标记
+
+    // 3. 遍历所有光源队列，渲染需要的阴影贴图
+    for (Vector<LightBatchQueue>::Iterator i = actualView->lightQueues_.Begin();
+         i != actualView->lightQueues_.End(); ++i) {
+      if (NeedRenderShadowMap(*i))
+        RenderShadowMap(*i);
+    }
+  }
+
+  {
+    // 1. 性能分析标记
+    URHO3D_PROFILE(ExecuteRenderPath);
+
+    // 2. 初始化渲染状态变量
+    currentRenderTarget_ = substituteRenderTarget_
+                               ? substituteRenderTarget_
+                               : renderTarget_; // 设置当前渲染目标
+    currentViewportTexture_ = nullptr;          // 当前视口纹理初始化为空
+    passCommand_ = nullptr;                     // 当前渲染命令指针初始化为空
+
+    // 3. 初始化控制标志
+    bool viewportModified = false; // 视口是否被修改
+    bool isPingponging = false;    // 是否正在进行乒乓缓冲
+    usedResolve_ = false;          // 是否使用了resolve操作
+
+    // 4. 查找最后一个有效的渲染命令索引
+    unsigned lastCommandIndex = 0;
+    for (unsigned i = 0; i < renderPath_->commands_.Size(); ++i) {
+      RenderPathCommand &command = renderPath_->commands_[i];
+      if (actualView->IsNecessary(command))
+        lastCommandIndex = i;
     }
 
-    {
-        URHO3D_PROFILE(ExecuteRenderPath);
+    // 5. 遍历并执行所有渲染命令
+    for (unsigned i = 0; i < renderPath_->commands_.Size(); ++i) {
+      RenderPathCommand &command = renderPath_->commands_[i];
+      if (!actualView->IsNecessary(command))
+        continue;
 
-        // Set for safety in case of empty renderpath
-        currentRenderTarget_ = substituteRenderTarget_ ? substituteRenderTarget_ : renderTarget_;
-        currentViewportTexture_ = nullptr;
-        passCommand_ = nullptr;
+      // 6. 检查当前命令是否需要读取/写入视口或开始乒乓缓冲
+      bool viewportRead = actualView->CheckViewportRead(command);
+      bool viewportWrite = actualView->CheckViewportWrite(command);
+      bool beginPingpong = actualView->CheckPingpong(i);
 
-        bool viewportModified = false;
-        bool isPingponging = false;
-        usedResolve_ = false;
+      // 7. 处理视口读取和修改状态
+      if (viewportRead && viewportModified) {
+        // 8. 处理乒乓缓冲逻辑
+        if (currentRenderTarget_ &&
+            currentRenderTarget_ == substituteRenderTarget_ && beginPingpong)
+          isPingponging = true;
 
-        unsigned lastCommandIndex = 0;
-        for (unsigned i = 0; i < renderPath_->commands_.Size(); ++i)
-        {
-            RenderPathCommand& command = renderPath_->commands_[i];
-            if (actualView->IsNecessary(command))
-                lastCommandIndex = i;
-        }
-
-        for (unsigned i = 0; i < renderPath_->commands_.Size(); ++i)
-        {
-            RenderPathCommand& command = renderPath_->commands_[i];
-            if (!actualView->IsNecessary(command))
-                continue;
-
-            bool viewportRead = actualView->CheckViewportRead(command);
-            bool viewportWrite = actualView->CheckViewportWrite(command);
-            bool beginPingpong = actualView->CheckPingpong(i);
-
-            // Has the viewport been modified and will be read as a texture by the current command?
-            if (viewportRead && viewportModified)
-            {
-                // Start pingponging without a blit if already rendering to the substitute render target
-                if (currentRenderTarget_ && currentRenderTarget_ == substituteRenderTarget_ && beginPingpong)
-                    isPingponging = true;
-
-                // If not using pingponging, simply resolve/copy to the first viewport texture
-                if (!isPingponging)
-                {
-                    if (!currentRenderTarget_)
-                    {
-                        graphics_->ResolveToTexture(dynamic_cast<Texture2D*>(viewportTextures_[0]), viewRect_);
-                        currentViewportTexture_ = viewportTextures_[0];
-                        viewportModified = false;
-                        usedResolve_ = true;
-                    }
-                    else
-                    {
-                        if (viewportWrite)
-                        {
-                            BlitFramebuffer(currentRenderTarget_->GetParentTexture(),
-                                GetRenderSurfaceFromTexture(viewportTextures_[0]), false);
-                            currentViewportTexture_ = viewportTextures_[0];
-                            viewportModified = false;
-                        }
-                        else
-                        {
-                            // If the current render target is already a texture, and we are not writing to it, can read that
-                            // texture directly instead of blitting. However keep the viewport dirty flag in case a later command
-                            // will do both read and write, and then we need to blit / resolve
-                            currentViewportTexture_ = currentRenderTarget_->GetParentTexture();
-                        }
-                    }
-                }
-                else
-                {
-                    // Swap the pingpong double buffer sides. Texture 0 will be read next
-                    viewportTextures_[1] = viewportTextures_[0];
-                    viewportTextures_[0] = currentRenderTarget_->GetParentTexture();
-                    currentViewportTexture_ = viewportTextures_[0];
-                    viewportModified = false;
-                }
+        // 9. 非乒乓缓冲情况下的视口处理
+        if (!isPingponging) {
+          if (!currentRenderTarget_) {
+            // 10. 无当前渲染目标时的resolve操作
+            graphics_->ResolveToTexture(
+                dynamic_cast<Texture2D *>(viewportTextures_[0]), viewRect_);
+            currentViewportTexture_ = viewportTextures_[0];
+            viewportModified = false;
+            usedResolve_ = true;
+          } else {
+            if (viewportWrite) {
+              // 11. 有视口写入时的blit操作
+              BlitFramebuffer(currentRenderTarget_->GetParentTexture(),
+                              GetRenderSurfaceFromTexture(viewportTextures_[0]),
+                              false);
+              currentViewportTexture_ = viewportTextures_[0];
+              viewportModified = false;
+            } else {
+              // 12. 直接使用当前渲染目标纹理
+              currentViewportTexture_ =
+                  currentRenderTarget_->GetParentTexture();
             }
+          }
+        } else {
+          // 13. 乒乓缓冲交换操作
+          viewportTextures_[1] = viewportTextures_[0];
+          viewportTextures_[0] = currentRenderTarget_->GetParentTexture();
+          currentViewportTexture_ = viewportTextures_[0];
+          viewportModified = false;
+        }
+      }
 
-            if (beginPingpong)
-                isPingponging = true;
+      if (beginPingpong)
+        isPingponging = true;
 
-            // Determine viewport write target
-            if (viewportWrite)
-            {
-                if (isPingponging)
-                {
-                    currentRenderTarget_ = GetRenderSurfaceFromTexture(viewportTextures_[1]);
-                    // If the render path ends into a quad, it can be redirected to the final render target
-                    // However, on OpenGL we can not reliably do this in case the final target is the backbuffer, and we want to
-                    // render depth buffer sensitive debug geometry afterward (backbuffer and textures can not share depth)
+      // 处理视口写入目标设置
+      if (viewportWrite) {
+        // 如果正在进行乒乓缓冲
+        if (isPingponging) {
+          // 设置当前渲染目标为乒乓缓冲的第二个纹理
+          currentRenderTarget_ =
+              GetRenderSurfaceFromTexture(viewportTextures_[1]);
+
+          // 特殊处理：当渲染路径以QUAD命令结束时，可以重定向到最终渲染目标
+          // 但在OpenGL下需要额外检查，因为backbuffer和纹理不能共享深度缓冲
+          // 所以当最终目标是backbuffer时不能直接重定向
 #ifndef URHO3D_OPENGL
-                    if (i == lastCommandIndex && command.type_ == CMD_QUAD)
+          // 非OpenGL平台：如果是最后一个命令且类型是QUAD，则使用最终渲染目标
+          if (i == lastCommandIndex && command.type_ == CMD_QUAD)
 #else
-                    if (i == lastCommandIndex && command.type_ == CMD_QUAD && renderTarget_)
+          // OpenGL平台：额外检查renderTarget_存在才重定向
+          if (i == lastCommandIndex && command.type_ == CMD_QUAD &&
+              renderTarget_)
 #endif
-                        currentRenderTarget_ = renderTarget_;
-                }
-                else
-                    currentRenderTarget_ = substituteRenderTarget_ ? substituteRenderTarget_ : renderTarget_;
-            }
-
-            switch (command.type_)
-            {
-            case CMD_CLEAR:
-                {
-                    URHO3D_PROFILE(ClearRenderTarget);
-
-                    Color clearColor = command.clearColor_;
-                    if (command.useFogColor_)
-                        clearColor = actualView->farClipZone_->GetFogColor();
-
-                    SetRenderTargets(command);
-                    graphics_->Clear(command.clearFlags_, clearColor, command.clearDepth_, command.clearStencil_);
-                }
-                break;
-
-            case CMD_SCENEPASS:
-                {
-                    BatchQueue& queue = actualView->batchQueues_[command.passIndex_];
-                    if (!queue.IsEmpty())
-                    {
-                        URHO3D_PROFILE(RenderScenePass);
-
-                        SetRenderTargets(command);
-                        bool allowDepthWrite = SetTextures(command);
-                        graphics_->SetClipPlane(camera_->GetUseClipping(), camera_->GetClipPlane(), camera_->GetView(),
-                            camera_->GetGPUProjection());
-
-                        if (command.shaderParameters_.Size())
-                        {
-                            // If pass defines shader parameters, reset parameter sources now to ensure they all will be set
-                            // (will be set after camera shader parameters)
-                            graphics_->ClearParameterSources();
-                            passCommand_ = &command;
-                        }
-
-                        queue.Draw(this, camera_, command.markToStencil_, false, allowDepthWrite);
-
-                        passCommand_ = nullptr;
-                    }
-                }
-                break;
-
-            case CMD_QUAD:
-                {
-                    URHO3D_PROFILE(RenderQuad);
-
-                    SetRenderTargets(command);
-                    SetTextures(command);
-                    RenderQuad(command);
-                }
-                break;
-
-            case CMD_FORWARDLIGHTS:
-                // Render shadow maps + opaque objects' additive lighting
-                if (!actualView->lightQueues_.Empty())
-                {
-                    URHO3D_PROFILE(RenderLights);
-
-                    SetRenderTargets(command);
-
-                    for (Vector<LightBatchQueue>::Iterator i = actualView->lightQueues_.Begin(); i != actualView->lightQueues_.End(); ++i)
-                    {
-                        // If reusing shadowmaps, render each of them before the lit batches
-                        if (renderer_->GetReuseShadowMaps() && NeedRenderShadowMap(*i))
-                        {
-                            RenderShadowMap(*i);
-                            SetRenderTargets(command);
-                        }
-
-                        bool allowDepthWrite = SetTextures(command);
-                        graphics_->SetClipPlane(camera_->GetUseClipping(), camera_->GetClipPlane(), camera_->GetView(),
-                            camera_->GetGPUProjection());
-
-                        if (command.shaderParameters_.Size())
-                        {
-                            graphics_->ClearParameterSources();
-                            passCommand_ = &command;
-                        }
-
-                        // Draw base (replace blend) batches first
-                        i->litBaseBatches_.Draw(this, camera_, false, false, allowDepthWrite);
-
-                        // Then, if there are additive passes, optimize the light and draw them
-                        if (!i->litBatches_.IsEmpty())
-                        {
-                            renderer_->OptimizeLightByScissor(i->light_, camera_);
-                            if (!noStencil_)
-                                renderer_->OptimizeLightByStencil(i->light_, camera_);
-                            i->litBatches_.Draw(this, camera_, false, true, allowDepthWrite);
-                        }
-
-                        passCommand_ = nullptr;
-                    }
-
-                    graphics_->SetScissorTest(false);
-                    graphics_->SetStencilTest(false);
-                }
-                break;
-
-            case CMD_LIGHTVOLUMES:
-                // Render shadow maps + light volumes
-                if (!actualView->lightQueues_.Empty())
-                {
-                    URHO3D_PROFILE(RenderLightVolumes);
-
-                    SetRenderTargets(command);
-                    for (Vector<LightBatchQueue>::Iterator i = actualView->lightQueues_.Begin(); i != actualView->lightQueues_.End(); ++i)
-                    {
-                        // If reusing shadowmaps, render each of them before the lit batches
-                        if (renderer_->GetReuseShadowMaps() && NeedRenderShadowMap(*i))
-                        {
-                            RenderShadowMap(*i);
-                            SetRenderTargets(command);
-                        }
-
-                        SetTextures(command);
-
-                        if (command.shaderParameters_.Size())
-                        {
-                            graphics_->ClearParameterSources();
-                            passCommand_ = &command;
-                        }
-
-                        for (unsigned j = 0; j < i->volumeBatches_.Size(); ++j)
-                        {
-                            SetupLightVolumeBatch(i->volumeBatches_[j]);
-                            i->volumeBatches_[j].Draw(this, camera_, false);
-                        }
-
-                        passCommand_ = nullptr;
-                    }
-
-                    graphics_->SetScissorTest(false);
-                    graphics_->SetStencilTest(false);
-                }
-                break;
-
-            case CMD_RENDERUI:
-                {
-                    SetRenderTargets(command);
-                    GetSubsystem<UI>()->Render(true);
-                }
-                break;
-
-            case CMD_SENDEVENT:
-                {
-                    using namespace RenderPathEvent;
-
-                    VariantMap& eventData = GetEventDataMap();
-                    eventData[P_NAME] = command.eventName_;
-                    renderer_->SendEvent(E_RENDERPATHEVENT, eventData);
-                }
-                break;
-
-            default:
-                break;
-            }
-
-            // If current command output to the viewport, mark it modified
-            if (viewportWrite)
-                viewportModified = true;
+            currentRenderTarget_ = renderTarget_;
         }
+        // 非乒乓缓冲情况
+        else {
+          // 使用替代渲染目标（如果存在），否则使用默认渲染目标
+          currentRenderTarget_ =
+              substituteRenderTarget_ ? substituteRenderTarget_ : renderTarget_;
+        }
+      }
+
+      switch (command.type_) {
+      // 处理清除渲染目标命令
+      case CMD_CLEAR: {
+        // 开始性能分析区块
+        URHO3D_PROFILE(ClearRenderTarget);
+
+        // 获取清除颜色
+        Color clearColor = command.clearColor_;
+        // 如果命令指定使用雾色作为清除颜色
+        if (command.useFogColor_)
+          clearColor = actualView->farClipZone_->GetFogColor();
+
+        // 设置渲染目标
+        SetRenderTargets(command);
+        // 执行清除操作
+        // 参数:
+        //   command.clearFlags_ - 清除标志(颜色/深度/模板缓冲)
+        //   clearColor - 清除颜色
+        //   command.clearDepth_ - 清除深度值
+        //   command.clearStencil_ - 清除模板值
+        graphics_->Clear(command.clearFlags_, clearColor, command.clearDepth_,
+                         command.clearStencil_);
+      } break;
+      // 处理场景渲染通道命令
+      case CMD_SCENEPASS: {
+        // 获取对应通道的批次队列
+        BatchQueue &queue = actualView->batchQueues_[command.passIndex_];
+        if (!queue.IsEmpty()) {
+          // 开始性能分析区块
+          URHO3D_PROFILE(RenderScenePass);
+
+          // 设置渲染目标
+          SetRenderTargets(command);
+          // 设置纹理并获取是否允许深度写入
+          bool allowDepthWrite = SetTextures(command);
+          // 设置裁剪平面参数
+          graphics_->SetClipPlane(camera_->GetUseClipping(),
+                                  camera_->GetClipPlane(), camera_->GetView(),
+                                  camera_->GetGPUProjection());
+
+          // 处理着色器参数
+          if (command.shaderParameters_.Size()) {
+            // 重置参数源以确保所有参数都会被设置
+            // (这些参数将在相机着色器参数之后设置)
+            graphics_->ClearParameterSources();
+            passCommand_ = &command;
+          }
+
+          // 绘制批次队列
+          // 参数:
+          //   this - 当前视图
+          //   camera_ - 相机
+          //   command.markToStencil_ - 是否标记到模板缓冲
+          //   false - 不使用实例化
+          //   allowDepthWrite - 是否允许深度写入
+          queue.Draw(this, camera_, command.markToStencil_, false,
+                     allowDepthWrite);
+
+          // 重置当前命令指针
+          passCommand_ = nullptr;
+        }
+      } break;
+
+      // 处理四边形渲染命令
+      case CMD_QUAD: {
+        // 开始性能分析区块
+        URHO3D_PROFILE(RenderQuad);
+
+        // 设置渲染目标
+        SetRenderTargets(command);
+        // 设置纹理
+        SetTextures(command);
+        // 执行四边形渲染
+        RenderQuad(command);
+      } break;
+      // 处理前向光照渲染命令
+      case CMD_FORWARDLIGHTS:
+        // 检查是否存在光源队列需要处理
+        if (!actualView->lightQueues_.Empty()) {
+          // 开始性能分析区块
+          URHO3D_PROFILE(RenderLights);
+
+          // 设置渲染目标
+          SetRenderTargets(command);
+
+          // 遍历所有光源队列
+          for (Vector<LightBatchQueue>::Iterator i =
+                   actualView->lightQueues_.Begin();
+               i != actualView->lightQueues_.End(); ++i) {
+            // 如果需要重用阴影贴图且当前光源需要渲染阴影贴图
+            if (renderer_->GetReuseShadowMaps() && NeedRenderShadowMap(*i)) {
+              RenderShadowMap(*i);       // 渲染阴影贴图
+              SetRenderTargets(command); // 重新设置渲染目标
+            }
+
+            // 设置纹理并获取是否允许深度写入
+            bool allowDepthWrite = SetTextures(command);
+            // 设置裁剪平面参数
+            graphics_->SetClipPlane(camera_->GetUseClipping(),
+                                    camera_->GetClipPlane(), camera_->GetView(),
+                                    camera_->GetGPUProjection());
+
+            // 处理着色器参数
+            if (command.shaderParameters_.Size()) {
+              graphics_->ClearParameterSources(); // 清除参数源
+              passCommand_ = &command;            // 设置当前命令指针
+            }
+
+            // 首先绘制基础批次(使用替换混合模式)
+            i->litBaseBatches_.Draw(this, camera_, false, false,
+                                    allowDepthWrite);
+
+            // 如果有附加批次(使用加法混合模式)
+            if (!i->litBatches_.IsEmpty()) {
+              // 使用裁剪矩形优化光源
+              renderer_->OptimizeLightByScissor(i->light_, camera_);
+              // 如果启用了模板测试，使用模板优化光源
+              if (!noStencil_)
+                renderer_->OptimizeLightByStencil(i->light_, camera_);
+              // 绘制附加批次
+              i->litBatches_.Draw(this, camera_, false, true, allowDepthWrite);
+            }
+
+            passCommand_ = nullptr; // 重置当前命令指针
+          }
+
+          // 禁用裁剪矩形和模板测试
+          graphics_->SetScissorTest(false);
+          graphics_->SetStencilTest(false);
+        }
+        break;
+
+        // 处理光源体积渲染命令
+      case CMD_LIGHTVOLUMES:
+        // 检查是否存在光源队列需要处理
+        if (!actualView->lightQueues_.Empty()) {
+          // 开始性能分析区块
+          URHO3D_PROFILE(RenderLightVolumes);
+
+          // 设置渲染目标
+          SetRenderTargets(command);
+
+          // 遍历所有光源队列
+          for (Vector<LightBatchQueue>::Iterator i =
+                   actualView->lightQueues_.Begin();
+               i != actualView->lightQueues_.End(); ++i) {
+            // 如果需要重用阴影贴图且当前光源需要渲染阴影贴图
+            if (renderer_->GetReuseShadowMaps() && NeedRenderShadowMap(*i)) {
+              RenderShadowMap(*i);       // 渲染阴影贴图
+              SetRenderTargets(command); // 重新设置渲染目标
+            }
+
+            // 设置纹理
+            SetTextures(command);
+
+            // 处理着色器参数
+            if (command.shaderParameters_.Size()) {
+              graphics_->ClearParameterSources(); // 清除参数源
+              passCommand_ = &command;            // 设置当前命令指针
+            }
+
+            // 遍历并渲染所有光源体积批次
+            for (unsigned j = 0; j < i->volumeBatches_.Size(); ++j) {
+              SetupLightVolumeBatch(
+                  i->volumeBatches_[j]); // 设置光源体积批次参数
+              i->volumeBatches_[j].Draw(this, camera_, false); // 绘制光源体积
+            }
+
+            passCommand_ = nullptr; // 重置当前命令指针
+          }
+
+          // 禁用裁剪矩形和模板测试
+          graphics_->SetScissorTest(false);
+          graphics_->SetStencilTest(false);
+        }
+        break;
+
+      // 处理UI渲染命令
+      case CMD_RENDERUI: {
+        // 设置渲染目标
+        SetRenderTargets(command);
+        // 调用UI子系统进行渲染
+        // 参数true表示清除UI渲染状态
+        GetSubsystem<UI>()->Render(true);
+      } break;
+
+      // 处理发送事件命令
+      case CMD_SENDEVENT: {
+        // 使用RenderPathEvent命名空间
+        using namespace RenderPathEvent;
+
+        // 获取事件数据映射并设置事件名称
+        VariantMap &eventData = GetEventDataMap();
+        eventData[P_NAME] = command.eventName_;
+        // 发送渲染路径事件
+        renderer_->SendEvent(E_RENDERPATHEVENT, eventData);
+      } break;
+
+      // 默认情况不做任何处理
+      default:
+        break;
+
+        // 检查当前命令是否有视口写入操作
+        if (viewportWrite)
+          // 标记视口已被修改，以便后续命令能正确处理视口状态
+          viewportModified = true;
+      }
     }
+  }
 }
 
-void View::SetRenderTargets(RenderPathCommand& command)
-{
+  void View::SetRenderTargets(RenderPathCommand & command) {
     unsigned index = 0;
     bool useColorWrite = true;
     bool useCustomDepth = false;
@@ -3056,79 +3108,90 @@ void View::SetupLightVolumeBatch(Batch& batch)
         graphics_->SetStencilTest(false);
 }
 
+// 判断是否需要渲染阴影贴图
+// 参数: queue - 光源批处理队列
+// 返回: bool - 是否需要渲染阴影贴图
 bool View::NeedRenderShadowMap(const LightBatchQueue& queue)
 {
-    // Must have a shadow map, and either forward or deferred lit batches
+    // 必须满足以下条件:
+    // 1. 存在有效的阴影贴图(queue.shadowMap_)
+    // 2. 并且有以下任意一种情况:
+    //    - 存在前向光照批处理(!queue.litBatches_.IsEmpty())
+    //    - 存在延迟光照基础批处理(!queue.litBaseBatches_.IsEmpty()) 
+    //    - 存在体积光批处理(!queue.volumeBatches_.Empty())
     return queue.shadowMap_ && (!queue.litBatches_.IsEmpty() || !queue.litBaseBatches_.IsEmpty() ||
         !queue.volumeBatches_.Empty());
 }
 
 void View::RenderShadowMap(const LightBatchQueue& queue)
 {
-    URHO3D_PROFILE(RenderShadowMap);
+    URHO3D_PROFILE(RenderShadowMap);  // 性能分析标记
 
     Texture2D* shadowMap = queue.shadowMap_;
-    graphics_->SetTexture(TU_SHADOWMAP, nullptr);
+    graphics_->SetTexture(TU_SHADOWMAP, nullptr);  // 清空阴影贴图纹理单元
 
+    // 设置渲染状态
     graphics_->SetFillMode(FILL_SOLID);
     graphics_->SetClipPlane(false);
     graphics_->SetStencilTest(false);
 
-    // Set shadow depth bias
+    // 获取阴影深度偏移参数
     BiasParameters parameters = queue.light_->GetShadowBias();
 
-    // The shadow map is a depth stencil texture
+    // 阴影贴图是深度模板纹理的情况
     if (shadowMap->GetUsage() == TEXTURE_DEPTHSTENCIL)
     {
-        graphics_->SetColorWrite(false);
-        graphics_->SetDepthStencil(shadowMap);
+        graphics_->SetColorWrite(false);  // 禁用颜色写入
+        graphics_->SetDepthStencil(shadowMap);  // 设置深度模板缓冲
         graphics_->SetRenderTarget(0, shadowMap->GetRenderSurface()->GetLinkedRenderTarget());
-        // Disable other render targets
+        // 禁用其他渲染目标
         for (unsigned i = 1; i < MAX_RENDERTARGETS; ++i)
             graphics_->SetRenderTarget(i, (RenderSurface*) nullptr);
         graphics_->SetViewport(IntRect(0, 0, shadowMap->GetWidth(), shadowMap->GetHeight()));
-        graphics_->Clear(CLEAR_DEPTH);
+        graphics_->Clear(CLEAR_DEPTH);  // 清除深度缓冲
     }
-    else // if the shadow map is a color rendertarget
+    else // 阴影贴图是颜色渲染目标的情况
     {
         graphics_->SetColorWrite(true);
         graphics_->SetRenderTarget(0, shadowMap);
-        // Disable other render targets
+        // 禁用其他渲染目标
         for (unsigned i = 1; i < MAX_RENDERTARGETS; ++i)
             graphics_->SetRenderTarget(i, (RenderSurface*) nullptr);
         graphics_->SetDepthStencil(renderer_->GetDepthStencil(shadowMap->GetWidth(), shadowMap->GetHeight(),
             shadowMap->GetMultiSample(), shadowMap->GetAutoResolve()));
         graphics_->SetViewport(IntRect(0, 0, shadowMap->GetWidth(), shadowMap->GetHeight()));
-        graphics_->Clear(CLEAR_DEPTH | CLEAR_COLOR, Color::WHITE);
+        graphics_->Clear(CLEAR_DEPTH | CLEAR_COLOR, Color::WHITE);  // 清除深度和颜色缓冲
 
-        parameters = BiasParameters(0.0f, 0.0f);
+        parameters = BiasParameters(0.0f, 0.0f);  // 重置偏移参数
     }
 
-    // Render each of the splits
+    // 渲染每个阴影分割区域
     for (unsigned i = 0; i < queue.shadowSplits_.Size(); ++i)
     {
         const ShadowBatchQueue& shadowQueue = queue.shadowSplits_[i];
 
         float multiplier = 1.0f;
-        // For directional light cascade splits, adjust depth bias according to the far clip ratio of the splits
+        // 对于方向光的级联阴影，根据分割区域的远裁剪面比例调整深度偏移
         if (i > 0 && queue.light_->GetLightType() == LIGHT_DIRECTIONAL)
         {
             multiplier =
                 Max(shadowQueue.shadowCamera_->GetFarClip() / queue.shadowSplits_[0].shadowCamera_->GetFarClip(), 1.0f);
             multiplier = 1.0f + (multiplier - 1.0f) * queue.light_->GetShadowCascade().biasAutoAdjust_;
-            // Quantize multiplier to prevent creation of too many rasterizer states on D3D11
+            // 量化乘数以防止在D3D11上创建过多的光栅化状态
             multiplier = (int)(multiplier * 10.0f) / 10.0f;
         }
 
-        // Perform further modification of depth bias on OpenGL ES, as shadow calculations' precision is limited
+        // 在OpenGL ES上进一步修改深度偏移，因为阴影计算的精度有限
         float addition = 0.0f;
 #ifdef GL_ES_VERSION_2_0
         multiplier *= renderer_->GetMobileShadowBiasMul();
         addition = renderer_->GetMobileShadowBiasAdd();
 #endif
 
+        // 设置深度偏移
         graphics_->SetDepthBias(multiplier * parameters.constantBias_ + addition, multiplier * parameters.slopeScaledBias_);
 
+        // 如果有阴影批次需要渲染
         if (!shadowQueue.shadowBatches_.IsEmpty())
         {
             graphics_->SetViewport(shadowQueue.shadowViewport_);
@@ -3136,11 +3199,11 @@ void View::RenderShadowMap(const LightBatchQueue& queue)
         }
     }
 
-    // Scale filter blur amount to shadow map viewport size so that different shadow map resolutions don't behave differently
+    // 根据阴影贴图视口大小缩放滤镜模糊量，使不同分辨率的阴影贴图表现一致
     float blurScale = queue.shadowSplits_[0].shadowViewport_.Width() / 1024.0f;
     renderer_->ApplyShadowMapFilter(this, shadowMap, blurScale);
 
-    // reset some parameters
+    // 重置渲染参数
     graphics_->SetColorWrite(true);
     graphics_->SetDepthBias(0.0f, 0.0f);
 }

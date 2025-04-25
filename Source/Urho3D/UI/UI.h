@@ -81,7 +81,24 @@ public:
     void Update(float timeStep);
     /// Update the UI for rendering. Called by HandleRenderUpdate().
     void RenderUpdate();
-    /// Render the UI. If renderUICommand is false (default), is assumed to be the default UI render to backbuffer called by Engine, and will be performed only once. Additional UI renders to a different rendertarget may be triggered from the renderpath.
+    /**
+     * @brief 渲染UI界面
+     * @param renderUICommand 是否为UI命令渲染模式
+     * 
+     * 当renderUICommand为false时(默认):
+     * - 表示由Engine调用的默认UI渲染到后台缓冲区
+     * - 每帧只会执行一次
+     * 
+     * 当renderUICommand为true时:
+     * - 表示从渲染路径触发的额外UI渲染
+     * - 可以渲染到不同的渲染目标
+     * 
+     * 注意: 该函数会根据不同模式处理UI元素的渲染流程
+     * 渲染路径中显式调用了RENDERUI命令
+     * 有UI元素需要渲染到纹理（如UIComponent）
+     * 需要实现分屏或多视图UI（如编辑器界面）
+     * 特殊效果需求（如UI后处理）
+     */
     void Render(bool renderUICommand = false);
     /// Debug draw a UI element.
     void DebugDraw(UIElement* element);
