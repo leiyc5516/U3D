@@ -1262,54 +1262,84 @@ void UI::Render(VertexBuffer* buffer, const PODVector<UIBatch>& batches, unsigne
     }
 }
 
+/**
+ * @brief 收集指定 UI 元素及其子元素的渲染批次数据
+ * 
+ * 该函数会递归地遍历指定 UI 元素的子元素，根据元素的遍历模式（广度优先或深度优先）
+ * 收集每个可见且在裁剪区域内的元素的渲染批次数据。
+ * 
+ * @param batches 用于存储渲染批次的向量
+ * @param vertexData 用于存储顶点数据的向量
+ * @param element 要处理的 UI 元素
+ * @param currentScissor 当前的裁剪矩形
+ */
 void UI::GetBatches(PODVector<UIBatch>& batches, PODVector<float>& vertexData, UIElement* element, IntRect currentScissor)
 {
-    // Set clipping scissor for child elements. No need to draw if zero size
+    // 为子元素设置裁剪矩形。如果裁剪矩形大小为零，则无需绘制
     element->AdjustScissor(currentScissor);
+    // 检查裁剪矩形是否无效（宽度或高度为零）
     if (currentScissor.left_ == currentScissor.right_ || currentScissor.top_ == currentScissor.bottom_)
         return;
 
+    // 对子元素进行排序
     element->SortChildren();
+    // 获取当前元素的子元素列表
     const Vector<SharedPtr<UIElement> >& children = element->GetChildren();
+    // 如果没有子元素，则直接返回
     if (children.Empty())
         return;
 
-    // For non-root elements draw all children of same priority before recursing into their children: assumption is that they have
-    // same renderstate
+    // 对于非根元素，在递归到子元素之前绘制所有相同优先级的子元素：假设它们具有相同的渲染状态
     Vector<SharedPtr<UIElement> >::ConstIterator i = children.Begin();
+    // 如果元素的遍历模式是广度优先
     if (element->GetTraversalMode() == TM_BREADTH_FIRST)
     {
+        // 初始化另一个迭代器 j 用于遍历相同优先级的元素
         Vector<SharedPtr<UIElement> >::ConstIterator j = i;
         while (i != children.End())
         {
+            // 获取当前元素的优先级
             int currentPriority = (*i)->GetPriority();
+            // 遍历所有具有相同优先级的元素
             while (j != children.End() && (*j)->GetPriority() == currentPriority)
             {
+                // 检查元素是否在裁剪区域内且不是光标元素
                 if ((*j)->IsWithinScissor(currentScissor) && (*j) != cursor_)
+                    // 收集该元素的渲染批次数据
                     (*j)->GetBatches(batches, vertexData, currentScissor);
+                // 移动到下一个元素
                 ++j;
             }
-            // Now recurse into the children
+            // 现在递归到这些元素的子元素
             while (i != j)
             {
+                // 检查元素是否可见且不是光标元素
                 if ((*i)->IsVisible() && (*i) != cursor_)
+                    // 递归调用 GetBatches 处理子元素
                     GetBatches(batches, vertexData, *i, currentScissor);
+                // 移动到下一个元素
                 ++i;
             }
         }
     }
-    // On the root level draw each element and its children immediately after to avoid artifacts
+    // 在根级别，立即绘制每个元素及其子元素以避免出现伪影
     else
     {
         while (i != children.End())
         {
+            // 排除光标元素
             if ((*i) != cursor_)
             {
+                // 检查元素是否在裁剪区域内
                 if ((*i)->IsWithinScissor(currentScissor))
+                    // 收集该元素的渲染批次数据
                     (*i)->GetBatches(batches, vertexData, currentScissor);
+                // 检查元素是否可见
                 if ((*i)->IsVisible())
+                    // 递归调用 GetBatches 处理子元素
                     GetBatches(batches, vertexData, *i, currentScissor);
             }
+            // 移动到下一个元素
             ++i;
         }
     }

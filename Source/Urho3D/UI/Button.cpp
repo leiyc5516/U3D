@@ -90,21 +90,37 @@ void Button::Update(float timeStep)
     }
 }
 
+/**
+ * @brief 获取按钮的渲染批次数据
+ * 
+ * 此函数根据按钮的当前状态（启用、悬停、按下、选中、禁用等）计算偏移量，
+ * 然后调用基类 BorderImage 的 GetBatches 函数来收集渲染批次数据。
+ * 
+ * @param batches 用于存储渲染批次的向量
+ * @param vertexData 用于存储顶点数据的向量
+ * @param currentScissor 当前的裁剪矩形，用于确定哪些区域需要渲染
+ */
 void Button::GetBatches(PODVector<UIBatch>& batches, PODVector<float>& vertexData, const IntRect& currentScissor)
 {
+    // 初始化偏移量为零向量
     IntVector2 offset(IntVector2::ZERO);
+    // 检查按钮是否启用
     if (enabled_)
     {
+        // 如果鼠标悬停在按钮上或者按钮获得焦点，则添加悬停偏移量
         if (hovering_ || HasFocus())
             offset += hoverOffset_;
+        // 如果按钮被按下或者被选中，则添加按下偏移量
         if (pressed_ || selected_)
             offset += pressedOffset_;
     }
     else
     {
+        // 如果按钮被禁用，则添加禁用偏移量
         offset += disabledOffset_;
     }
 
+    // 调用基类 BorderImage 的 GetBatches 函数，并传入计算好的偏移量
     BorderImage::GetBatches(batches, vertexData, currentScissor, offset);
 }
 

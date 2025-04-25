@@ -75,16 +75,34 @@ void UIBatch::SetDefaultColor()
     }
 }
 
+/**
+ * @brief 向顶点数据中添加一个四边形的顶点信息。
+ * 
+ * 该函数会根据传入的四边形位置、尺寸以及纹理偏移等信息，计算四边形各顶点的位置、颜色和纹理坐标，
+ * 并将这些信息添加到顶点数据向量中。如果颜色没有渐变且透明度为 0，则不会添加该四边形。
+ * 
+ * @param x 四边形在屏幕空间中的左上角 x 坐标。
+ * @param y 四边形在屏幕空间中的左上角 y 坐标。
+ * @param width 四边形的宽度。
+ * @param height 四边形的高度。
+ * @param texOffsetX 纹理偏移的 x 坐标。
+ * @param texOffsetY 纹理偏移的 y 坐标。
+ * @param texWidth 纹理的宽度。若为 0，则使用四边形的宽度。
+ * @param texHeight 纹理的高度。若为 0，则使用四边形的高度。
+ */
 void UIBatch::AddQuad(float x, float y, float width, float height, int texOffsetX, int texOffsetY, int texWidth, int texHeight)
 {
+    // 定义四边形四个顶点的颜色值
     unsigned topLeftColor, topRightColor, bottomLeftColor, bottomRightColor;
 
+    // 检查是否使用颜色渐变
     if (!useGradient_)
     {
-        // If alpha is 0, nothing will be rendered, so do not add the quad
+        // 如果 alpha 通道为 0，说明完全透明，不会渲染任何内容，因此不添加该四边形
         if (!(color_ & 0xff000000))
             return;
 
+        // 若不使用颜色渐变，四个顶点的颜色都设置为统一颜色
         topLeftColor = color_;
         topRightColor = color_;
         bottomLeftColor = color_;
@@ -92,29 +110,39 @@ void UIBatch::AddQuad(float x, float y, float width, float height, int texOffset
     }
     else
     {
+        // 若使用颜色渐变，根据顶点位置插值计算每个顶点的颜色
         topLeftColor = GetInterpolatedColor(x, y);
         topRightColor = GetInterpolatedColor(x + width, y);
         bottomLeftColor = GetInterpolatedColor(x, y + height);
         bottomRightColor = GetInterpolatedColor(x + width, y + height);
     }
 
+    // 获取元素在屏幕上的位置
     const IntVector2& screenPos = element_->GetScreenPosition();
 
+    // 计算四边形在屏幕空间中的实际坐标
     float left = x + screenPos.x_ - posAdjust.x_;
     float right = left + width;
-    float top = y + screenPos.y_ - posAdjust.x_;
+    // 原代码此处可能有误，应该减去 posAdjust.y_ 而不是 posAdjust.x_
+    float top = y + screenPos.y_ - posAdjust.y_; 
     float bottom = top + height;
 
+    // 计算四边形各顶点对应的纹理坐标
     float leftUV = texOffsetX * invTextureSize_.x_;
     float topUV = texOffsetY * invTextureSize_.y_;
     float rightUV = (texOffsetX + (texWidth ? texWidth : width)) * invTextureSize_.x_;
     float bottomUV = (texOffsetY + (texHeight ? texHeight : height)) * invTextureSize_.y_;
 
+    // 记录当前顶点数据向量的大小，作为新顶点数据的起始位置
     unsigned begin = vertexData_->Size();
+    // 为新的四边形顶点数据预留空间，一个四边形由两个三角形组成，共 6 个顶点
     vertexData_->Resize(begin + 6 * UI_VERTEX_SIZE);
+    // 获取指向新顶点数据起始位置的指针
     float* dest = &(vertexData_->At(begin));
+    // 更新顶点数据的结束位置
     vertexEnd_ = vertexData_->Size();
 
+    // 添加第一个三角形的第一个顶点（左上角）
     dest[0] = left;
     dest[1] = top;
     dest[2] = 0.0f;
@@ -122,6 +150,7 @@ void UIBatch::AddQuad(float x, float y, float width, float height, int texOffset
     dest[4] = leftUV;
     dest[5] = topUV;
 
+    // 添加第一个三角形的第二个顶点（右上角）
     dest[6] = right;
     dest[7] = top;
     dest[8] = 0.0f;
@@ -129,6 +158,7 @@ void UIBatch::AddQuad(float x, float y, float width, float height, int texOffset
     dest[10] = rightUV;
     dest[11] = topUV;
 
+    // 添加第一个三角形的第三个顶点（左下角）
     dest[12] = left;
     dest[13] = bottom;
     dest[14] = 0.0f;
@@ -136,6 +166,7 @@ void UIBatch::AddQuad(float x, float y, float width, float height, int texOffset
     dest[16] = leftUV;
     dest[17] = bottomUV;
 
+    // 添加第二个三角形的第一个顶点（右上角）
     dest[18] = right;
     dest[19] = top;
     dest[20] = 0.0f;
@@ -143,6 +174,7 @@ void UIBatch::AddQuad(float x, float y, float width, float height, int texOffset
     dest[22] = rightUV;
     dest[23] = topUV;
 
+    // 添加第二个三角形的第二个顶点（右下角）
     dest[24] = right;
     dest[25] = bottom;
     dest[26] = 0.0f;
@@ -150,6 +182,7 @@ void UIBatch::AddQuad(float x, float y, float width, float height, int texOffset
     dest[28] = rightUV;
     dest[29] = bottomUV;
 
+    // 添加第二个三角形的第三个顶点（左下角）
     dest[30] = left;
     dest[31] = bottom;
     dest[32] = 0.0f;
@@ -158,17 +191,37 @@ void UIBatch::AddQuad(float x, float y, float width, float height, int texOffset
     dest[35] = bottomUV;
 }
 
+/**
+ * @brief 向顶点数据中添加一个四边形，支持使用变换矩阵进行顶点变换。
+ * 
+ * 该函数会根据传入的变换矩阵、四边形的位置和尺寸、纹理偏移等信息，
+ * 计算四边形各顶点的位置、颜色和纹理坐标，并将这些信息添加到顶点数据向量中。
+ * 如果颜色没有渐变且透明度为 0，则不会添加该四边形。
+ * 
+ * @param transform 用于变换顶点位置的 3x4 矩阵。
+ * @param x 四边形在屏幕空间中的左上角 x 坐标。
+ * @param y 四边形在屏幕空间中的左上角 y 坐标。
+ * @param width 四边形的宽度。
+ * @param height 四边形的高度。
+ * @param texOffsetX 纹理偏移的 x 坐标。
+ * @param texOffsetY 纹理偏移的 y 坐标。
+ * @param texWidth 纹理的宽度。若为 0，则使用四边形的宽度。
+ * @param texHeight 纹理的高度。若为 0，则使用四边形的高度。
+ */
 void UIBatch::AddQuad(const Matrix3x4& transform, int x, int y, int width, int height, int texOffsetX, int texOffsetY,
     int texWidth, int texHeight)
 {
+    // 定义四边形四个顶点的颜色值
     unsigned topLeftColor, topRightColor, bottomLeftColor, bottomRightColor;
 
+    // 检查是否使用颜色渐变
     if (!useGradient_)
     {
-        // If alpha is 0, nothing will be rendered, so do not add the quad
+        // 如果 alpha 通道为 0，说明完全透明，不会渲染任何内容，因此不添加该四边形
         if (!(color_ & 0xff000000))
             return;
 
+        // 若不使用颜色渐变，四个顶点的颜色都设置为统一颜色
         topLeftColor = color_;
         topRightColor = color_;
         bottomLeftColor = color_;
@@ -176,27 +229,35 @@ void UIBatch::AddQuad(const Matrix3x4& transform, int x, int y, int width, int h
     }
     else
     {
+        // 若使用颜色渐变，根据顶点位置插值计算每个顶点的颜色
         topLeftColor = GetInterpolatedColor(x, y);
         topRightColor = GetInterpolatedColor(x + width, y);
         bottomLeftColor = GetInterpolatedColor(x, y + height);
         bottomRightColor = GetInterpolatedColor(x + width, y + height);
     }
 
+    // 使用变换矩阵对四边形的四个顶点进行变换，并减去位置调整量
     Vector3 v1 = (transform * Vector3((float)x, (float)y, 0.0f)) - posAdjust;
     Vector3 v2 = (transform * Vector3((float)x + (float)width, (float)y, 0.0f)) - posAdjust;
     Vector3 v3 = (transform * Vector3((float)x, (float)y + (float)height, 0.0f)) - posAdjust;
     Vector3 v4 = (transform * Vector3((float)x + (float)width, (float)y + (float)height, 0.0f)) - posAdjust;
 
+    // 计算四边形各顶点对应的纹理坐标
     float leftUV = ((float)texOffsetX) * invTextureSize_.x_;
     float topUV = ((float)texOffsetY) * invTextureSize_.y_;
     float rightUV = ((float)(texOffsetX + (texWidth ? texWidth : width))) * invTextureSize_.x_;
     float bottomUV = ((float)(texOffsetY + (texHeight ? texHeight : height))) * invTextureSize_.y_;
 
+    // 记录当前顶点数据向量的大小，作为新顶点数据的起始位置
     unsigned begin = vertexData_->Size();
+    // 为新的四边形顶点数据预留空间，一个四边形由两个三角形组成，共 6 个顶点
     vertexData_->Resize(begin + 6 * UI_VERTEX_SIZE);
+    // 获取指向新顶点数据起始位置的指针
     float* dest = &(vertexData_->At(begin));
+    // 更新顶点数据的结束位置
     vertexEnd_ = vertexData_->Size();
 
+    // 添加第一个三角形的第一个顶点（左上角）
     dest[0] = v1.x_;
     dest[1] = v1.y_;
     dest[2] = 0.0f;
@@ -204,6 +265,7 @@ void UIBatch::AddQuad(const Matrix3x4& transform, int x, int y, int width, int h
     dest[4] = leftUV;
     dest[5] = topUV;
 
+    // 添加第一个三角形的第二个顶点（右上角）
     dest[6] = v2.x_;
     dest[7] = v2.y_;
     dest[8] = 0.0f;
@@ -211,6 +273,7 @@ void UIBatch::AddQuad(const Matrix3x4& transform, int x, int y, int width, int h
     dest[10] = rightUV;
     dest[11] = topUV;
 
+    // 添加第一个三角形的第三个顶点（左下角）
     dest[12] = v3.x_;
     dest[13] = v3.y_;
     dest[14] = 0.0f;
@@ -218,6 +281,7 @@ void UIBatch::AddQuad(const Matrix3x4& transform, int x, int y, int width, int h
     dest[16] = leftUV;
     dest[17] = bottomUV;
 
+    // 添加第二个三角形的第一个顶点（右上角）
     dest[18] = v2.x_;
     dest[19] = v2.y_;
     dest[20] = 0.0f;
@@ -225,6 +289,7 @@ void UIBatch::AddQuad(const Matrix3x4& transform, int x, int y, int width, int h
     dest[22] = rightUV;
     dest[23] = topUV;
 
+    // 添加第二个三角形的第二个顶点（右下角）
     dest[24] = v4.x_;
     dest[25] = v4.y_;
     dest[26] = 0.0f;
@@ -232,6 +297,7 @@ void UIBatch::AddQuad(const Matrix3x4& transform, int x, int y, int width, int h
     dest[28] = rightUV;
     dest[29] = bottomUV;
 
+    // 添加第二个三角形的第三个顶点（左下角）
     dest[30] = v3.x_;
     dest[31] = v3.y_;
     dest[32] = 0.0f;
@@ -240,36 +306,64 @@ void UIBatch::AddQuad(const Matrix3x4& transform, int x, int y, int width, int h
     dest[35] = bottomUV;
 }
 
+/**
+ * @brief 向顶点数据中添加一个四边形，支持平铺模式。
+ * 
+ * 此函数会根据传入的参数添加一个四边形到顶点数据中。如果启用了平铺模式，
+ * 会将四边形分割成多个小四边形进行填充。如果没有颜色渐变且透明度为 0，
+ * 则不会添加四边形。
+ * 
+ * @param x 四边形在屏幕空间中的左上角 x 坐标。
+ * @param y 四边形在屏幕空间中的左上角 y 坐标。
+ * @param width 四边形的宽度。
+ * @param height 四边形的高度。
+ * @param texOffsetX 纹理偏移的 x 坐标。
+ * @param texOffsetY 纹理偏移的 y 坐标。
+ * @param texWidth 纹理的宽度。
+ * @param texHeight 纹理的高度。
+ * @param tiled 是否启用平铺模式。如果为 true，则会将四边形分割成多个小四边形进行填充。
+ */
 void UIBatch::AddQuad(int x, int y, int width, int height, int texOffsetX, int texOffsetY, int texWidth, int texHeight, bool tiled)
 {
+    // 检查是否既没有颜色渐变，又透明度为 0。如果是，则不添加四边形
     if (!(element_->HasColorGradient() || element_->GetDerivedColor().ToUInt() & 0xff000000))
         return; // No gradient and alpha is 0, so do not add the quad
 
+    // 如果不启用平铺模式，直接调用另一个 AddQuad 函数添加四边形
     if (!tiled)
     {
         AddQuad(x, y, width, height, texOffsetX, texOffsetY, texWidth, texHeight);
         return;
     }
 
+    // 定义平铺的起始位置和尺寸变量
     int tileX = 0;
     int tileY = 0;
     int tileW = 0;
     int tileH = 0;
 
+    // 垂直方向遍历，直到覆盖整个四边形的高度
     while (tileY < height)
     {
+        // 每次垂直移动后，重置水平方向的起始位置
         tileX = 0;
+        // 计算当前行的平铺高度，避免超出四边形的高度
         tileH = Min(height - tileY, texHeight);
 
+        // 水平方向遍历，直到覆盖当前行的宽度
         while (tileX < width)
         {
+            // 计算当前列的平铺宽度，避免超出四边形的宽度
             tileW = Min(width - tileX, texWidth);
 
+            // 调用另一个 AddQuad 函数添加当前小四边形
             AddQuad(x + tileX, y + tileY, tileW, tileH, texOffsetX, texOffsetY, tileW, tileH);
 
+            // 水平移动到下一个平铺位置
             tileX += tileW;
         }
 
+        // 垂直移动到下一行
         tileY += tileH;
     }
 }
@@ -402,8 +496,25 @@ void UIBatch::AddQuad(const Matrix3x4& transform, const IntVector2& a, const Int
     dest[35] = uv4.y_;
 }
 
+/**
+ * @brief 尝试将另一个 UIBatch 对象合并到当前对象中。
+ * 
+ * 该函数会检查传入的 UIBatch 对象是否可以与当前对象合并。
+ * 只有在混合模式、裁剪矩形、纹理、顶点数据指针相同，并且传入批次的起始顶点位置
+ * 等于当前批次的结束顶点位置时，才可以进行合并。如果可以合并，
+ * 则更新当前批次的结束顶点位置。
+ * 
+ * @param batch 要尝试合并的另一个 UIBatch 对象。
+ * @return 如果合并成功返回 true，否则返回 false。
+ */
 bool UIBatch::Merge(const UIBatch& batch)
 {
+    // 检查多个条件，判断是否可以合并两个 UIBatch 对象
+    // 如果混合模式不同，说明渲染方式不同，不能合并
+    // 如果裁剪矩形不同，说明渲染区域不同，不能合并
+    // 如果纹理不同，说明使用的纹理资源不同，不能合并
+    // 如果顶点数据指针不同，说明存储顶点数据的位置不同，不能合并
+    // 如果传入批次的起始顶点位置不等于当前批次的结束顶点位置，数据不连续，不能合并
     if (batch.blendMode_ != blendMode_ ||
         batch.scissor_ != scissor_ ||
         batch.texture_ != texture_ ||
@@ -411,41 +522,80 @@ bool UIBatch::Merge(const UIBatch& batch)
         batch.vertexStart_ != vertexEnd_)
         return false;
 
+    // 如果上述条件都满足，则可以合并两个 UIBatch 对象
+    // 更新当前批次的结束顶点位置为传入批次的结束顶点位置
     vertexEnd_ = batch.vertexEnd_;
     return true;
 }
 
+/**
+ * @brief 计算并返回指定位置的插值颜色。
+ * 
+ * 该函数根据传入的 x 和 y 坐标，在 UI 元素的四个角颜色之间进行插值计算，
+ * 得到指定位置的颜色值。如果 UI 元素的宽度和高度都不为 0，则进行二维插值；
+ * 否则，直接返回左上角的颜色。最后，将颜色的透明度乘以元素的派生不透明度。
+ * 
+ * @param x 要计算颜色的位置的 x 坐标，相对于 UI 元素的左上角。
+ * @param y 要计算颜色的位置的 y 坐标，相对于 UI 元素的左上角。
+ * @return 计算得到的颜色的无符号整数表示。
+ */
 unsigned UIBatch::GetInterpolatedColor(float x, float y)
 {
+    // 获取 UI 元素的尺寸
     const IntVector2& size = element_->GetSize();
 
+    // 检查 UI 元素的宽度和高度是否都不为 0
     if (size.x_ && size.y_)
     {
+        // 计算 x 和 y 方向的插值因子，并将其限制在 0 到 1 之间
         float cLerpX = Clamp(x / (float)size.x_, 0.0f, 1.0f);
         float cLerpY = Clamp(y / (float)size.y_, 0.0f, 1.0f);
 
+        // 在顶部的两个角颜色之间进行线性插值，得到顶部的插值颜色
         Color topColor = element_->GetColor(C_TOPLEFT).Lerp(element_->GetColor(C_TOPRIGHT), cLerpX);
+        // 在底部的两个角颜色之间进行线性插值，得到底部的插值颜色
         Color bottomColor = element_->GetColor(C_BOTTOMLEFT).Lerp(element_->GetColor(C_BOTTOMRIGHT), cLerpX);
+        // 在顶部和底部的插值颜色之间进行线性插值，得到最终的插值颜色
         Color color = topColor.Lerp(bottomColor, cLerpY);
+        // 将最终颜色的透明度乘以元素的派生不透明度
         color.a_ *= element_->GetDerivedOpacity();
+        // 将最终颜色转换为无符号整数表示并返回
         return color.ToUInt();
     }
     else
     {
+        // 如果 UI 元素的宽度或高度为 0，直接获取左上角的颜色
         Color color = element_->GetColor(C_TOPLEFT);
+        // 将左上角颜色的透明度乘以元素的派生不透明度
         color.a_ *= element_->GetDerivedOpacity();
+        // 将左上角颜色转换为无符号整数表示并返回
         return color.ToUInt();
     }
 }
 
+/**
+ * @brief 将一个 UIBatch 对象添加到批次向量中，或者尝试与现有批次合并。
+ * 
+ * 该函数会检查传入的 UIBatch 对象是否包含有效的顶点数据。如果包含，
+ * 会尝试将其与批次向量中的最后一个批次合并。如果合并失败，则将该批次
+ * 直接添加到批次向量的末尾。
+ * 
+ * @param batch 要添加或合并的 UIBatch 对象。
+ * @param batches 存储 UIBatch 对象的向量。
+ */
 void UIBatch::AddOrMerge(const UIBatch& batch, PODVector<UIBatch>& batches)
 {
+    // 检查传入的批次是否包含有效的顶点数据。如果顶点结束位置等于顶点起始位置，
+    // 说明该批次没有顶点数据，直接返回，不进行添加或合并操作。
     if (batch.vertexEnd_ == batch.vertexStart_)
         return;
 
+    // 检查批次向量是否不为空，并且尝试将传入的批次与向量中的最后一个批次合并。
+    // 如果合并成功，说明两个批次可以合并为一个，直接返回，不再进行添加操作。
     if (!batches.Empty() && batches.Back().Merge(batch))
         return;
 
+    // 如果上述条件都不满足，说明无法合并，将传入的批次添加到批次向量的末尾。
     batches.Push(batch);
 }
 
