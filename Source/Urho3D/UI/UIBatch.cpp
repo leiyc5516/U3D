@@ -38,39 +38,87 @@ UIBatch::UIBatch()
     SetDefaultColor();
 }
 
+/**
+ * @brief UIBatch 类的带参数构造函数。
+ * 
+ * 该构造函数用于初始化 UIBatch 对象，接收 UI 元素、混合模式、裁剪矩形、纹理和顶点数据指针作为参数。
+ * 它会根据传入的参数设置对象的成员变量，并计算纹理的逆尺寸。同时，调用 `SetDefaultColor` 函数设置默认颜色。
+ * 
+ * @param element 此批次所代表的 UI 元素。
+ * @param blendMode 混合模式，用于控制像素的混合方式。
+ * @param scissor 裁剪矩形，定义了渲染区域。
+ * @param texture 纹理对象，用于渲染 UI 元素。
+ * @param vertexData 指向顶点数据向量的指针，存储四边形的顶点信息。
+ */
 UIBatch::UIBatch(UIElement* element, BlendMode blendMode, const IntRect& scissor, Texture* texture, PODVector<float>* vertexData) :     // NOLINT(modernize-pass-by-value)
+    // 初始化此批次所代表的 UI 元素
     element_(element),
+    // 初始化混合模式
     blendMode_(blendMode),
+    // 初始化裁剪矩形
     scissor_(scissor),
+    // 初始化纹理对象
     texture_(texture),
+    // 计算并初始化纹理的逆尺寸。如果纹理存在，则计算其宽度和高度的倒数；否则，使用默认值 (1.0f, 1.0f)
     invTextureSize_(texture ? Vector2(1.0f / (float)texture->GetWidth(), 1.0f / (float)texture->GetHeight()) : Vector2::ONE),
+    // 初始化顶点数据指针
     vertexData_(vertexData),
+    // 初始化顶点数据的起始索引，设置为当前顶点数据向量的大小
     vertexStart_(vertexData->Size()),
+    // 初始化顶点数据的结束索引，设置为当前顶点数据向量的大小
     vertexEnd_(vertexData->Size())
 {
+    // 调用 SetDefaultColor 函数设置默认颜色
     SetDefaultColor();
 }
 
+/**
+ * @brief 设置 UIBatch 的颜色。
+ * 
+ * 该函数用于设置 UIBatch 的颜色，并根据 `overrideAlpha` 参数决定是否覆盖原有的透明度。
+ * 如果没有关联的 UI 元素，则强制覆盖透明度。
+ * 
+ * @param color 要设置的颜色。
+ * @param overrideAlpha 是否覆盖原有的透明度。如果为 true，则直接使用传入颜色的透明度；
+ *                      如果为 false，则将传入颜色的透明度乘以 UI 元素的派生不透明度。
+ */
 void UIBatch::SetColor(const Color& color, bool overrideAlpha)
 {
+    // 如果没有关联的 UI 元素，强制覆盖透明度，因为没有元素就无法获取派生不透明度
     if (!element_)
         overrideAlpha = true;
 
+    // 设置颜色渐变标志为 false，表示不使用颜色渐变
     useGradient_ = false;
+    // 根据 overrideAlpha 参数决定最终的颜色值
+    // 如果 overrideAlpha 为 true，直接使用传入颜色的无符号整数表示
+    // 如果 overrideAlpha 为 false，将传入颜色的透明度乘以 UI 元素的派生不透明度后，再转换为无符号整数表示
     color_ =
         overrideAlpha ? color.ToUInt() : Color(color.r_, color.g_, color.b_, color.a_ * element_->GetDerivedOpacity()).ToUInt();
 }
 
+/**
+ * @brief 设置 UIBatch 的默认颜色。
+ * 
+ * 该函数根据是否存在关联的 UI 元素，设置 UIBatch 的颜色和颜色渐变标志。
+ * 如果存在关联的 UI 元素，则使用该元素的派生颜色，并根据元素是否有颜色渐变设置标志。
+ * 如果不存在关联的 UI 元素，则将颜色设置为白色（完全不透明），并将颜色渐变标志设置为 false。
+ */
 void UIBatch::SetDefaultColor()
 {
+    // 检查是否存在关联的 UI 元素
     if (element_)
     {
+        // 如果存在关联的 UI 元素，将 UIBatch 的颜色设置为该元素的派生颜色的无符号整数表示
         color_ = element_->GetDerivedColor().ToUInt();
+        // 根据 UI 元素是否有颜色渐变，设置 UIBatch 的颜色渐变标志
         useGradient_ = element_->HasColorGradient();
     }
     else
     {
+        // 如果不存在关联的 UI 元素，将 UIBatch 的颜色设置为白色（完全不透明）
         color_ = 0xffffffff;
+        // 将 UIBatch 的颜色渐变标志设置为 false，表示没有颜色渐变
         useGradient_ = false;
     }
 }

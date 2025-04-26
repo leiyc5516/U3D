@@ -38,65 +38,153 @@ class UIElement;
 
 static const unsigned UI_VERTEX_SIZE = 6;
 
-/// %UI rendering draw call.
+/**
+ * @class UIBatch
+ * @brief 表示 UI 渲染的绘制调用。包含了渲染一个 UI 元素所需的所有信息，如混合模式、裁剪矩形、纹理等。
+ * 该类提供了多种方法来添加不同类型的四边形到渲染批次中，并且支持批次合并操作。
+ */
 class URHO3D_API UIBatch
 {
 public:
-    /// Construct with defaults.
+    /// 用默认值构造 UIBatch 对象。
     UIBatch();
-    /// Construct.
+    /**
+     * @brief 构造 UIBatch 对象。
+     * @param element 此批次所代表的 UI 元素。
+     * @param blendMode 混合模式。
+     * @param scissor 裁剪矩形。
+     * @param texture 纹理。
+     * @param vertexData 顶点数据指针。
+     */
     UIBatch(UIElement* element, BlendMode blendMode, const IntRect& scissor, Texture* texture, PODVector<float>* vertexData);
 
-    /// Set new color for the batch. Overrides gradient.
+    /**
+     * @brief 为批次设置新的颜色，会覆盖渐变效果。
+     * @param color 要设置的颜色。
+     * @param overrideAlpha 是否覆盖透明度。
+     */
     void SetColor(const Color& color, bool overrideAlpha = false);
-    /// Restore UI element's default color.
+    /// 恢复 UI 元素的默认颜色。
     void SetDefaultColor();
-    /// Add a quad.
+    /**
+     * @brief 添加一个四边形到批次中。
+     * @param x 四边形的 x 坐标。
+     * @param y 四边形的 y 坐标。
+     * @param width 四边形的宽度。
+     * @param height 四边形的高度。
+     * @param texOffsetX 纹理的 x 偏移量。
+     * @param texOffsetY 纹理的 y 偏移量。
+     * @param texWidth 纹理的宽度，默认为 0。
+     * @param texHeight 纹理的高度，默认为 0。
+     */
     void AddQuad(float x, float y, float width, float height, int texOffsetX, int texOffsetY, int texWidth = 0, int texHeight = 0);
-    /// Add a quad using a transform matrix.
+    /**
+     * @brief 使用变换矩阵添加一个四边形到批次中。
+     * @param transform 变换矩阵。
+     * @param x 四边形的 x 坐标。
+     * @param y 四边形的 y 坐标。
+     * @param width 四边形的宽度。
+     * @param height 四边形的高度。
+     * @param texOffsetX 纹理的 x 偏移量。
+     * @param texOffsetY 纹理的 y 偏移量。
+     * @param texWidth 纹理的宽度，默认为 0。
+     * @param texHeight 纹理的高度，默认为 0。
+     */
     void AddQuad(const Matrix3x4& transform, int x, int y, int width, int height, int texOffsetX, int texOffsetY, int texWidth = 0,
         int texHeight = 0);
-    /// Add a quad with tiled texture.
+    /**
+     * @brief 添加一个使用平铺纹理的四边形到批次中。
+     * @param x 四边形的 x 坐标。
+     * @param y 四边形的 y 坐标。
+     * @param width 四边形的宽度。
+     * @param height 四边形的高度。
+     * @param texOffsetX 纹理的 x 偏移量。
+     * @param texOffsetY 纹理的 y 偏移量。
+     * @param texWidth 纹理的宽度。
+     * @param texHeight 纹理的高度。
+     * @param tiled 是否使用平铺纹理。
+     */
     void AddQuad(int x, int y, int width, int height, int texOffsetX, int texOffsetY, int texWidth, int texHeight, bool tiled);
-    /// Add a quad with freeform points and UVs. Uses the current color, not gradient. Points should be specified in clockwise order.
+    /**
+     * @brief 添加一个具有自由点和 UV 坐标的四边形到批次中。使用当前颜色，不使用渐变。
+     * 点应按顺时针顺序指定。
+     * @param transform 变换矩阵。
+     * @param a 四边形的第一个点。
+     * @param b 四边形的第二个点。
+     * @param c 四边形的第三个点。
+     * @param d 四边形的第四个点。
+     * @param texA 第一个点的纹理坐标。
+     * @param texB 第二个点的纹理坐标。
+     * @param texC 第三个点的纹理坐标。
+     * @param texD 第四个点的纹理坐标。
+     */
     void AddQuad(const Matrix3x4& transform, const IntVector2& a, const IntVector2& b, const IntVector2& c, const IntVector2& d,
         const IntVector2& texA, const IntVector2& texB, const IntVector2& texC, const IntVector2& texD);
-    /// Add a quad with freeform points, UVs and colors. Points should be specified in clockwise order.
+    /**
+     * @brief 添加一个具有自由点、UV 坐标和颜色的四边形到批次中。
+     * 点应按顺时针顺序指定。
+     * @param transform 变换矩阵。
+     * @param a 四边形的第一个点。
+     * @param b 四边形的第二个点。
+     * @param c 四边形的第三个点。
+     * @param d 四边形的第四个点。
+     * @param texA 第一个点的纹理坐标。
+     * @param texB 第二个点的纹理坐标。
+     * @param texC 第三个点的纹理坐标。
+     * @param texD 第四个点的纹理坐标。
+     * @param colA 第一个点的颜色。
+     * @param colB 第二个点的颜色。
+     * @param colC 第三个点的颜色。
+     * @param colD 第四个点的颜色。
+     */
     void AddQuad(const Matrix3x4& transform, const IntVector2& a, const IntVector2& b, const IntVector2& c, const IntVector2& d,
         const IntVector2& texA, const IntVector2& texB, const IntVector2& texC, const IntVector2& texD, const Color& colA,
         const Color& colB, const Color& colC, const Color& colD);
-    /// Merge with another batch.
+    /**
+     * @brief 尝试将另一个批次合并到当前批次中。
+     * @param batch 要合并的批次。
+     * @return 如果合并成功返回 true，否则返回 false。
+     */
     bool Merge(const UIBatch& batch);
-    /// Return an interpolated color for the UI element.
+    /**
+     * @brief 返回 UI 元素的插值颜色。
+     * @param x 计算颜色的 x 坐标。
+     * @param y 计算颜色的 y 坐标。
+     * @return 插值后的颜色。
+     */
     unsigned GetInterpolatedColor(float x, float y);
 
-    /// Add or merge a batch.
+    /**
+     * @brief 添加或合并一个批次到批次列表中。
+     * @param batch 要添加或合并的批次。
+     * @param batches 批次列表。
+     */
     static void AddOrMerge(const UIBatch& batch, PODVector<UIBatch>& batches);
 
-    /// Element this batch represents.
+    /// 此批次所代表的 UI 元素。
     UIElement* element_{};
-    /// Blending mode.
+    /// 混合模式。
     BlendMode blendMode_{BLEND_REPLACE};
-    /// Scissor rectangle.
+    /// 裁剪矩形。
     IntRect scissor_;
-    /// Texture.
+    /// 纹理。
     Texture* texture_{};
-    /// Inverse texture size.
+    /// 纹理的逆尺寸。
     Vector2 invTextureSize_{Vector2::ONE};
-    /// Vertex data.
+    /// 顶点数据指针。
     PODVector<float>* vertexData_{};
-    /// Vertex data start index.
+    /// 顶点数据的起始索引。
     unsigned vertexStart_{};
-    /// Vertex data end index.
+    /// 顶点数据的结束索引。
     unsigned vertexEnd_{};
-    /// Current color. By default calculated from the element.
+    /// 当前颜色，默认根据元素计算。
     unsigned color_{};
-    /// Gradient flag.
+    /// 渐变标志。
     bool useGradient_{};
-    /// Custom material.
+    /// 自定义材质。
     Material* customMaterial_{};
 
-    /// Position adjustment vector for pixel-perfect rendering. Initialized by UI.
+    /// 用于像素完美渲染的位置调整向量，由 UI 初始化。
     static Vector3 posAdjust;
 };
 
