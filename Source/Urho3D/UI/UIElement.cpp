@@ -545,33 +545,47 @@ void UIElement::SetPosition(int x, int y)
     SetPosition(IntVector2(x, y));
 }
 
+/**
+ * @brief 设置UI元素的大小
+ * @param size 要设置的新尺寸
+ * 
+ * 该函数用于设置UI元素的尺寸，处理逻辑包括：
+ * 1. 增加嵌套层级计数器防止递归调用
+ * 2. 根据最小/最大尺寸限制验证输入尺寸
+ * 3. 如果尺寸发生变化，更新布局并发送尺寸变化事件
+ * 4. 只在最外层调用时触发布局更新和事件通知
+ */
 void UIElement::SetSize(const IntVector2& size)
 {
-    ++resizeNestingLevel_;
+    ++resizeNestingLevel_;  // 增加嵌套层级计数器
 
     IntVector2 oldSize = size_;
     IntVector2 validatedSize;
+    // 获取有效最小尺寸(考虑布局模式)
     IntVector2 effectiveMinSize = GetEffectiveMinSize();
+    // 将尺寸限制在最小和最大值之间
     validatedSize.x_ = Clamp(size.x_, effectiveMinSize.x_, maxSize_.x_);
     validatedSize.y_ = Clamp(size.y_, effectiveMinSize.y_, maxSize_.y_);
 
+    // 只有尺寸实际发生变化时才处理
     if (validatedSize != size_)
     {
         size_ = validatedSize;
 
+        // 只在最外层调用时触发布局更新和事件
         if (resizeNestingLevel_ == 1)
         {
-            // Check if parent element's layout needs to be updated first
+            // 先检查父元素是否需要更新布局
             if (parent_)
                 parent_->UpdateLayout();
 
             IntVector2 delta = size_ - oldSize;
-            MarkDirty();
-            OnResize(size_, delta);
-            UpdateLayout();
+            MarkDirty();  // 标记需要重新计算位置
+            OnResize(size_, delta);  // 调用子类重写的尺寸变化处理
+            UpdateLayout();  // 更新自身布局
 
+            // 发送尺寸变化事件
             using namespace Resized;
-
             VariantMap& eventData = GetEventDataMap();
             eventData[P_ELEMENT] = this;
             eventData[P_WIDTH] = size_.x_;
@@ -582,7 +596,7 @@ void UIElement::SetSize(const IntVector2& size)
         }
     }
 
-    --resizeNestingLevel_;
+    --resizeNestingLevel_;  // 减少嵌套层级计数器
 }
 
 void UIElement::SetSize(int width, int height)

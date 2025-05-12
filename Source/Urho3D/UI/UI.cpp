@@ -91,7 +91,9 @@ const char* UI_CATEGORY = "UI";
 
 UI::UI(Context* context) :
     Object(context),
+    // 创建根UI元素，作为普通UI元素的容器
     rootElement_(new UIElement(context)),
+    // 创建模态根UI元素，用于存放模态对话框等需要独占交互的UI元素
     rootModalElement_(new UIElement(context)),
     doubleClickInterval_(DEFAULT_DOUBLECLICK_INTERVAL),
     dragBeginInterval_(DEFAULT_DRAGBEGIN_INTERVAL),
@@ -986,30 +988,49 @@ bool UI::HasModalElement() const
     return rootModalElement_->GetNumChildren() > 0;
 }
 
+/**
+ * @brief 初始化UI系统
+ * 
+ * 该函数负责初始化UI系统的核心组件，包括：
+ * 1. 获取图形子系统并检查其状态
+ * 2. 设置UI批处理的像素偏移量
+ * 3. 初始化根元素大小
+ * 4. 创建顶点缓冲区
+ * 5. 订阅必要的引擎事件
+ */
 void UI::Initialize()
 {
+    // 获取图形子系统
     auto* graphics = GetSubsystem<Graphics>();
 
+    // 检查图形子系统是否有效且已初始化
     if (!graphics || !graphics->IsInitialized())
         return;
 
+    // 开始性能分析区块
     URHO3D_PROFILE(InitUI);
 
+    // 保存图形子系统引用
     graphics_ = graphics;
+    // 设置UI批处理的像素偏移量(用于解决像素对齐问题)
     UIBatch::posAdjust = Vector3(Graphics::GetPixelUVOffset(), 0.0f);
 
-    // Set initial root element size
+    // 设置初始根元素大小
     ResizeRootElement();
 
+    // 创建主顶点缓冲区和调试绘制顶点缓冲区
     vertexBuffer_ = new VertexBuffer(context_);
     debugVertexBuffer_ = new VertexBuffer(context_);
 
+    // 标记UI系统已初始化
     initialized_ = true;
 
+    // 订阅引擎核心事件
     SubscribeToEvent(E_BEGINFRAME, URHO3D_HANDLER(UI, HandleBeginFrame));
     SubscribeToEvent(E_POSTUPDATE, URHO3D_HANDLER(UI, HandlePostUpdate));
     SubscribeToEvent(E_RENDERUPDATE, URHO3D_HANDLER(UI, HandleRenderUpdate));
 
+    // 记录初始化日志
     URHO3D_LOGINFO("Initialized user interface");
 }
 
@@ -1034,17 +1055,27 @@ void UI::Update(float timeStep, UIElement* element)
         Update(timeStep, children[i]);
 }
 
+/**
+ * @brief 设置顶点缓冲区的顶点数据
+ * @param dest 目标顶点缓冲区对象
+ * @param vertexData 包含顶点数据的浮点数组
+ * 
+ * 该函数负责将UI元素的顶点数据更新到指定的顶点缓冲区中。
+ * 如果顶点数据为空则直接返回，否则会根据顶点数量调整缓冲区大小，
+ * 然后将数据复制到缓冲区中。
+ */
 void UI::SetVertexData(VertexBuffer* dest, const PODVector<float>& vertexData)
 {
     if (vertexData.Empty())
         return;
 
-    // Update quad geometry into the vertex buffer
-    // Resize the vertex buffer first if too small or much too large
+    // 更新四边形几何数据到顶点缓冲区
+    // 如果顶点缓冲区太小或太大，首先调整其大小
     unsigned numVertices = vertexData.Size() / UI_VERTEX_SIZE;
     if (dest->GetVertexCount() < numVertices || dest->GetVertexCount() > numVertices * 2)
         dest->SetSize(numVertices, MASK_POSITION | MASK_COLOR | MASK_TEXCOORD1, true);
 
+    // 将顶点数据设置到缓冲区
     dest->SetData(&vertexData[0]);
 }
 
@@ -2294,20 +2325,44 @@ IntVector2 UI::SumTouchPositions(UI::DragData* dragData, const IntVector2& oldSe
     return sendPos;
 }
 
+/**
+ * @brief 调整根元素和模态根元素的大小
+ * 
+ * 该函数用于：
+ * 1. 获取当前有效的根元素尺寸
+ * 2. 将计算得到的尺寸应用到普通根元素(rootElement_) 
+ * 3. 将相同尺寸应用到模态根元素(rootModalElement_)
+ * 确保两者尺寸一致，保持UI布局的统一性
+ */
 void UI::ResizeRootElement()
 {
+    // 获取当前有效的根元素尺寸(考虑自定义尺寸和缩放因子)
     IntVector2 effectiveSize = GetEffectiveRootElementSize();
+    // 设置普通根元素尺寸
     rootElement_->SetSize(effectiveSize);
+    // 设置模态根元素尺寸(与普通根元素保持一致)
     rootModalElement_->SetSize(effectiveSize);
 }
 
+/**
+ * @brief 获取有效的根元素尺寸
+ * @param applyScale 是否应用UI缩放因子
+ * @return 计算后的有效尺寸
+ * 
+ * 该函数用于计算UI系统的有效根元素尺寸，处理逻辑包括：
+ * 1. 在无图形子系统时使用默认尺寸(1024x768)
+ * 2. 优先使用自定义尺寸(如果已设置)
+ * 3. 根据参数决定是否应用UI缩放因子
+ */
 IntVector2 UI::GetEffectiveRootElementSize(bool applyScale) const
 {
-    // Use a fake size in headless mode
+    // 有图形子系统时使用实际屏幕尺寸，否则使用默认尺寸
     IntVector2 size = graphics_ ? IntVector2(graphics_->GetWidth(), graphics_->GetHeight()) : IntVector2(1024, 768);
+    // 如果设置了自定义尺寸，则覆盖当前尺寸
     if (customSize_.x_ > 0 && customSize_.y_ > 0)
         size = customSize_;
 
+    // 根据参数决定是否应用UI缩放
     if (applyScale)
     {
         size.x_ = RoundToInt((float)size.x_ / uiScale_);

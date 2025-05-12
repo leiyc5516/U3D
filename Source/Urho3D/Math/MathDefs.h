@@ -234,8 +234,20 @@ template <class Iterator> inline auto Average(Iterator begin, Iterator end) -> t
 }
 
 /// Round value to nearest integer.
-/// @specialization{float}
-template <class T> inline int RoundToInt(T x) { return static_cast<int>(round(x)); }
+/**
+ * @brief 将浮点数四舍五入到最接近的整数
+ * @tparam T 浮点类型(float/double等)
+ * @param x 要四舍五入的值
+ * @return 四舍五入后的整数值
+ * 
+ * 该模板函数使用标准库的round函数进行四舍五入计算，
+ * 然后将结果转换为int类型返回。
+ * 适用于各种浮点类型的四舍五入操作。
+ */
+template <class T> 
+inline int RoundToInt(T x) { 
+    return static_cast<int>(round(x)); 
+}
 
 /// Round value to nearest multiple.
 template <class T> inline T RoundToNearestMultiple(T x, T multiple)

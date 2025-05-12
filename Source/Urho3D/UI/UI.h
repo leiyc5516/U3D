@@ -303,23 +303,33 @@ public:
 
 private:
     /// Data structured used to hold data of UI elements that are rendered to texture.
+    /**
+     * @brief 渲染到纹理的UI元素数据结构
+     * 
+     * 该结构体用于存储需要渲染到纹理的UI元素相关数据，包含：
+     * 1. UI元素引用和对应的目标纹理
+     * 2. 渲染所需的批次和顶点数据
+     * 3. 调试绘制相关的资源和数据
+     * 
+     * 主要用于实现UI元素渲染到纹理的功能(如UIComponent)
+     */
     struct RenderToTextureData
     {
-        /// UIElement to be rendered into texture.
+        /// 弱指针引用的UI元素(避免循环引用)
         WeakPtr<UIElement> rootElement_;
-        /// Texture that UIElement will be rendered into.
+        /// 目标渲染纹理(存储渲染结果)
         SharedPtr<Texture2D> texture_;
-        /// UI rendering batches.
+        /// UI渲染批次容器(存储绘制命令)
         PODVector<UIBatch> batches_;
-        /// UI rendering vertex data.
+        /// UI顶点数据容器(存储顶点坐标/颜色/UV等)
         PODVector<float> vertexData_;
-        /// UI vertex buffer.
+        /// 顶点缓冲区对象(上传顶点数据到GPU)
         SharedPtr<VertexBuffer> vertexBuffer_;
-        /// UI rendering batches for debug draw.
+        /// 调试绘制批次容器(存储调试绘制命令)
         PODVector<UIBatch> debugDrawBatches_;
-        /// UI rendering vertex data for debug draw.
+        /// 调试绘制顶点数据容器(存储调试顶点数据) 
         PODVector<float> debugVertexData_;
-        /// UI debug geometry vertex buffer.
+        /// 调试绘制顶点缓冲区(上传调试顶点数据到GPU)
         SharedPtr<VertexBuffer> debugVertexBuffer_;
     };
 

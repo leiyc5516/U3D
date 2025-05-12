@@ -78,37 +78,56 @@ void VertexBuffer::Release()
     }
 }
 
+/**
+ * @brief 设置顶点缓冲区的数据
+ * @param data 指向顶点数据的指针
+ * @return 成功返回true，失败返回false
+ * 
+ * 该函数用于将顶点数据设置到顶点缓冲区中。主要功能包括：
+ * 1. 检查数据指针有效性
+ * 2. 检查顶点大小是否已定义
+ * 3. 更新影子数据(如果存在)
+ * 4. 将数据上传到GPU缓冲区
+ */
 bool VertexBuffer::SetData(const void* data)
 {
+    // 检查数据指针是否为空
     if (!data)
     {
         URHO3D_LOGERROR("Null pointer for vertex buffer data");
         return false;
     }
 
+    // 检查顶点大小是否已定义
     if (!vertexSize_)
     {
         URHO3D_LOGERROR("Vertex elements not defined, can not set vertex buffer data");
         return false;
     }
 
+    // 如果存在影子数据且数据指针不同，则拷贝数据到影子缓冲区
     if (shadowData_ && data != shadowData_.Get())
         memcpy(shadowData_.Get(), data, vertexCount_ * (size_t)vertexSize_);
 
+    // 如果缓冲区对象存在
     if (object_.name_)
     {
+        // 检查设备是否丢失
         if (!graphics_->IsDeviceLost())
         {
+            // 绑定缓冲区并上传数据
             graphics_->SetVBO(object_.name_);
             glBufferData(GL_ARRAY_BUFFER, vertexCount_ * (size_t)vertexSize_, data, dynamic_ ? GL_DYNAMIC_DRAW : GL_STATIC_DRAW);
         }
         else
         {
+            // 设备丢失时标记数据待处理
             URHO3D_LOGWARNING("Vertex buffer data assignment while device is lost");
             dataPending_ = true;
         }
     }
 
+    // 重置数据丢失标志并返回成功
     dataLost_ = false;
     return true;
 }
@@ -226,35 +245,50 @@ void VertexBuffer::Unlock()
     }
 }
 
+/**
+ * @brief 创建OpenGL顶点缓冲区对象
+ * @return 创建成功返回true，失败返回false
+ * 
+ * 该函数负责创建实际的OpenGL顶点缓冲区对象(VBO)，主要功能包括：
+ * 1. 检查顶点数量和元素掩码是否有效
+ * 2. 检查图形设备状态
+ * 3. 生成新的缓冲区对象名称
+ * 4. 绑定缓冲区并分配存储空间
+ */
 bool VertexBuffer::Create()
 {
+    // 检查顶点数量和元素掩码是否有效
     if (!vertexCount_ || !elementMask_)
     {
-        Release();
-        return true;
+        Release();  // 无效参数时释放可能存在的资源
+        return true; // 返回true表示"无操作"成功
     }
 
+    // 检查图形子系统是否存在
     if (graphics_)
     {
+        // 检查设备是否丢失
         if (graphics_->IsDeviceLost())
         {
             URHO3D_LOGWARNING("Vertex buffer creation while device is lost");
-            return true;
+            return true; // 设备丢失时返回true(延迟创建)
         }
 
+        // 生成新的OpenGL缓冲区对象
         if (!object_.name_)
             glGenBuffers(1, &object_.name_);
         if (!object_.name_)
         {
             URHO3D_LOGERROR("Failed to create vertex buffer");
-            return false;
+            return false; // 生成失败返回false
         }
 
+        // 绑定缓冲区并分配存储空间
         graphics_->SetVBO(object_.name_);
         glBufferData(GL_ARRAY_BUFFER, vertexCount_ * (size_t)vertexSize_, nullptr, dynamic_ ? GL_DYNAMIC_DRAW : GL_STATIC_DRAW);
     }
 
-    return true;
+    return true; // 创建成功
 }
 
 bool VertexBuffer::UpdateToGPU()
